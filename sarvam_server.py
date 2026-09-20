@@ -70,10 +70,10 @@ SUPPORTED_LANGUAGES = {
     "ml": "Malayalam", "or": "Odia", "as": "Assamese", "en": "English",
 }
 
-# Short ISO code -> Sarvam BCP-47 code. pa/or/as follow the same "xx-IN"
-# convention as the languages Sarvam explicitly documents, but aren't
-# confirmed supported -- if Sarvam rejects one, the error handling below
-# reports it to the client instead of crashing the server.
+# Short ISO code -> Sarvam BCP-47 code. Verified against Sarvam's actual
+# accepted-values list (returned in its own 400 error responses) for all 12
+# languages -- every code here is confirmed, not guessed. Note Odia is
+# "od-IN" in Sarvam's API, not the ISO 639-1 "or-IN" you'd expect.
 LANGUAGE_CODE_MAP = {
     "hi": "hi-IN",
     "ta": "ta-IN",
@@ -84,7 +84,7 @@ LANGUAGE_CODE_MAP = {
     "gu": "gu-IN",
     "pa": "pa-IN",
     "ml": "ml-IN",
-    "or": "or-IN",
+    "or": "od-IN",
     "as": "as-IN",
     "en": "en-IN",
 }
@@ -192,13 +192,19 @@ async def sarvam_translate(text: str, src_lang: str, tgt_lang: str) -> str:
     logger.info("[NMT] Translating %s->%s...", src_lang, tgt_lang)
     start = time.perf_counter()
 
+    # mayura:v1 rejects Assamese outright ("not supported in mayura:v1"); Sarvam's
+    # own error names sarvam-translate:v1 as the model to use for it instead. Kept
+    # as a targeted exception rather than switching everyone to it, since mayura:v1
+    # is confirmed working for the other 9 languages already.
+    model = "sarvam-translate:v1" if "as-IN" in (source_code, target_code) else "mayura:v1"
+
     payload = {
         "input": text,
         "source_language_code": source_code,
         "target_language_code": target_code,
         "speaker_gender": "Female",
         "mode": "formal",
-        "model": "mayura:v1",
+        "model": model,
         "enable_preprocessing": True,
     }
 
