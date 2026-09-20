@@ -163,6 +163,7 @@ async def sarvam_stt(pcm_data: bytes, src_lang: str) -> str:
         )
         response.raise_for_status()
         body = response.json()
+        print(f"[STT] Full response: {body}", flush=True)
     except httpx.HTTPStatusError as exc:
         raise SarvamAPIError(f"STT request failed: {exc.response.status_code} {exc.response.text}") from exc
     except httpx.HTTPError as exc:
@@ -362,8 +363,8 @@ async def run_sarvam_pipeline(websocket: WebSocket, pcm_data: bytes, src_lang: s
         return
 
     if not transcript.strip():
-        logger.warning("STT returned empty transcript; aborting pipeline")
-        await websocket.send_json({"type": "error", "message": "Could not transcribe audio (empty result)"})
+        logger.warning("STT returned empty transcript; sending no_speech and skipping NMT/TTS")
+        await websocket.send_json({"type": "no_speech", "message": "No speech detected"})
         return
 
     await websocket.send_json({"type": "transcript", "text": transcript, "final": True, "lang": src_lang})
