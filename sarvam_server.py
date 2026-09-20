@@ -112,7 +112,7 @@ FLAG_END_OF_UTTERANCE = 0x02
 FLAG_TTS_AUDIO = 0x03
 
 CLOSE_CODE_INVALID_LANGUAGE = 4008
-TTS_CHUNK_SIZE = 4096
+TTS_CHUNK_SIZE = 8192
 
 WAV_HEADER_SIZE = 44
 
@@ -150,10 +150,24 @@ def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 1, bi
 
 
 def wav_to_pcm(wav_bytes: bytes) -> bytes:
-    """Strips the leading 44-byte canonical WAV header, returning raw PCM.
-    Sarvam TTS responses are canonical (no extra chunks before `data`), so a
-    fixed offset is sufficient here.
+    """Locates the `data` chunk by walking the WAV's RIFF chunk list, returning
+    its contents as raw PCM. A fixed 44-byte offset only holds for a WAV with
+    exactly one `fmt ` chunk and nothing else before `data`; if Sarvam's
+    encoder ever emits extra chunks (LIST/fact/etc.) ahead of `data`, a fixed
+    offset would slice into real audio, or include trailing header bytes as
+    if they were samples -- either shows up as crackling/noise on playback.
     """
+    offset = 12  # skip the 12-byte RIFF/WAVE header ("RIFF" + size + "WAVE")
+    while offset + 8 <= len(wav_bytes):
+        chunk_id = wav_bytes[offset : offset + 4]
+        chunk_size = struct.unpack_from("<I", wav_bytes, offset + 4)[0]
+        data_start = offset + 8
+        if chunk_id == b"data":
+            return wav_bytes[data_start : data_start + chunk_size]
+        # Per the RIFF spec, chunks are padded to an even byte count.
+        offset = data_start + chunk_size + (chunk_size & 1)
+
+    logger.warning("wav_to_pcm: no 'data' chunk found, falling back to fixed 44-byte offset")
     return wav_bytes[WAV_HEADER_SIZE:]
 
 
