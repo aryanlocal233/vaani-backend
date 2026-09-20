@@ -14,6 +14,7 @@ import base64
 import logging
 import os
 import struct
+import sys
 import time
 
 import httpx
@@ -22,6 +23,15 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
+
+# On Windows, stdout defaults to the console's codepage (often cp1252) in
+# strict error mode, which raises UnicodeEncodeError on Devanagari/Tamil/etc.
+# transcripts -- crashing the pipeline mid-utterance right after a successful
+# transcription, before any response reaches the client. stderr already
+# defaults to errors='backslashreplace' (why logger.* calls survive this),
+# so make stdout equally tolerant instead of crashing on real STT output.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 logging.basicConfig(
     level=logging.INFO,
