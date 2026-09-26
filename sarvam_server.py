@@ -447,6 +447,12 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
             }
         )
 
+        # src_lang (the operator/help-desk side, dropdown 1 in the app) is fixed for the whole
+        # session. visitor_lang (dropdown 2, the public-facing side) starts as whatever the
+        # session URL said, but is free to change to *any* supported language the moment
+        # someone speaks one that isn't src_lang -- see run_sarvam_pipeline.
+        visitor_lang = tgt_lang
+
         while True:
             message = await websocket.receive()
 
@@ -487,7 +493,11 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
                     len(final_pcm),
                     utterance_count,
                 )
-                await run_sarvam_pipeline(websocket, final_pcm, src_lang, tgt_lang, counter_id)
+                # visitor_lang is deliberately reassigned here: the operator's language
+                # (src_lang) is fixed for the session, but whichever language the *other*
+                # person is actually detected speaking becomes the new visitor_lang for
+                # every subsequent utterance -- see run_sarvam_pipeline's docstring.
+                visitor_lang = await run_sarvam_pipeline(websocket, final_pcm, src_lang, visitor_lang, counter_id)
 
             else:
                 logger.warning("Unknown flag byte: 0x%02x", flag)
@@ -507,18 +517,21 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
 
 
 async def run_sarvam_pipeline(
-    websocket: WebSocket, pcm_data: bytes, src_lang: str, tgt_lang: str, counter_id: str = "unknown"
-) -> None:
+    websocket: WebSocket, pcm_data: bytes, operator_lang: str, visitor_lang: str, counter_id: str = "unknown"
+) -> str:
     """Runs real STT -> NMT -> TTS via Sarvam AI, streaming each stage's
     result to the client as soon as it's ready. Any failure sends an error
     JSON frame and returns -- never raises out of this function.
 
-    The session's URL fixes a *pair* of languages (src_lang, tgt_lang), but
-    either person at the counter may speak either one -- a session opened as
-    hi/or must translate hi->or when Hindi is spoken and or->hi when Odia is
-    spoken, without the client reconnecting. So STT runs in auto-detect mode
-    ("unknown") rather than being forced to src_lang, and the actual
-    direction for this utterance is resolved from what Sarvam detected.
+    operator_lang (help-desk side) is fixed for the whole session. visitor_lang
+    (public-facing side) is not a fixed pair partner -- it's just the most
+    recently detected language for that side, and this function returns the
+    (possibly updated) value for the caller to carry into the next utterance.
+    STT runs in full auto-detect mode ("unknown"), so if the detected language
+    is any supported language other than operator_lang, that becomes the new
+    visitor_lang -- a session opened assuming Hindi can seamlessly pick up a
+    Tamil-speaking pilgrim next, without the client reconnecting or having
+    pre-selected Tamil.
     """
     pipeline_start = time.perf_counter()
 
@@ -528,7 +541,7 @@ async def run_sarvam_pipeline(
     except SarvamAPIError as exc:
         logger.error("STT failed: %s", exc)
         await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {exc}"})
-        return
+        return visitor_lang
     stt_ms = int((time.perf_counter() - stt_start) * 1000)
 
     if not transcript.strip():
@@ -538,26 +551,28 @@ async def run_sarvam_pipeline(
             EVENT_PACK, counter_id, detected_bcp47, None, "none", False, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
         )
-        return
+        return visitor_lang
 
     detected_short = REVERSE_LANGUAGE_CODE_MAP.get(detected_bcp47 or "")
-    if detected_short == tgt_lang:
-        actual_src, actual_tgt = tgt_lang, src_lang
-    elif detected_short == src_lang:
-        actual_src, actual_tgt = src_lang, tgt_lang
+    if detected_short == operator_lang:
+        actual_src, actual_tgt = operator_lang, visitor_lang
+    elif detected_short is not None and detected_short in SUPPORTED_LANGUAGES:
+        # Someone spoke a supported language that isn't the operator's -- that's the visitor,
+        # whichever language it turns out to be, not necessarily whatever visitor_lang was
+        # previously. Update it so the app's own "visitor language" display follows reality,
+        # and so a translated *reply* back to them (see below) goes out in the right language.
+        actual_src, actual_tgt = detected_short, operator_lang
+        visitor_lang = detected_short
     else:
-        # Detected language isn't either configured language (misdetection,
-        # background noise, or Sarvam didn't return a usable field at all --
-        # check the "[STT] Full response" log if this fires a lot). Fall back
-        # to the session's originally assumed direction rather than guessing
-        # a language the user never selected.
+        # Sarvam didn't return a usable/supported language field at all (misdetection,
+        # background noise -- check the "[STT] Full response" log if this fires a lot).
+        # Fall back to the last known direction rather than guessing.
         if detected_short is not None:
             logger.warning(
-                "Detected language '%s' is outside configured pair (%s, %s); "
-                "falling back to %s->%s",
-                detected_short, src_lang, tgt_lang, src_lang, tgt_lang,
+                "Detected language '%s' is not a supported language; falling back to %s->%s",
+                detected_short, operator_lang, visitor_lang,
             )
-        actual_src, actual_tgt = src_lang, tgt_lang
+        actual_src, actual_tgt = operator_lang, visitor_lang
 
     await websocket.send_json({"type": "transcript", "text": transcript, "final": True, "lang": actual_src})
 
@@ -579,7 +594,7 @@ async def run_sarvam_pipeline(
         except SarvamAPIError as exc:
             logger.error("FAQ TTS failed for %s: %s", faq_entry["id"], exc)
             await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
-            return
+            return visitor_lang
         chunk_count = 0
         for offset in range(0, len(pcm_audio), TTS_CHUNK_SIZE):
             chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
@@ -590,19 +605,19 @@ async def run_sarvam_pipeline(
             EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000), escalated=is_emergency,
         )
-        return
+        return visitor_lang
 
     try:
         translated_text = await sarvam_translate(transcript, actual_src, actual_tgt)
     except SarvamAPIError as exc:
         logger.error("Translation failed: %s", exc)
         await websocket.send_json({"type": "error", "message": f"Translation failed: {exc}"})
-        return
+        return visitor_lang
 
     if not translated_text.strip():
         logger.warning("NMT returned empty translation; aborting pipeline")
         await websocket.send_json({"type": "error", "message": "Translation returned empty result"})
-        return
+        return visitor_lang
 
     unknown_question_note = (
         "No FAQ match -- fell through to live translation. If this question recurs, it's a "
@@ -631,7 +646,7 @@ async def run_sarvam_pipeline(
             except SarvamAPIError as exc:
                 logger.error("TTS failed for sentence %r: %s", sentence, exc)
                 await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
-                return
+                return visitor_lang
 
             pcm_audio = apply_edge_fade(pcm_audio)
 
@@ -650,6 +665,7 @@ async def run_sarvam_pipeline(
         EVENT_PACK, counter_id, actual_src, None, "none", True, True,
         stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
     )
+    return visitor_lang
 
 
 @app.on_event("shutdown")
