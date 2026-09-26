@@ -104,17 +104,44 @@ async def log_analytics(
     stt_cost_inr: float = 0.0,
     translate_cost_inr: float = 0.0,
     tts_cost_inr: float = 0.0,
+    device_id: str | None = None,
 ) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO conversation_analytics "
             "(pack_id, counter_id, detected_language, faq_id, cache_hit, translation_api_used, "
             " tts_api_used, stt_ms, response_ms, escalated, audio_duration_ms, "
-            " stt_cost_inr, translate_cost_inr, tts_cost_inr) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+            " stt_cost_inr, translate_cost_inr, tts_cost_inr, device_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
             pack_id, counter_id, detected_language, faq_id, cache_hit,
             translation_api_used, tts_api_used, stt_ms, response_ms, escalated,
-            audio_duration_ms, stt_cost_inr, translate_cost_inr, tts_cost_inr,
+            audio_duration_ms, stt_cost_inr, translate_cost_inr, tts_cost_inr, device_id,
+        )
+
+
+async def upsert_device(
+    device_id: str, pack_id: str, device_model: str | None, os_version: str | None,
+    app_version: str | None, counter_id: str,
+) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO devices (device_id, pack_id, device_model, os_version, app_version, last_counter_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6) "
+            "ON CONFLICT (device_id) DO UPDATE SET "
+            "device_model = EXCLUDED.device_model, os_version = EXCLUDED.os_version, "
+            "app_version = EXCLUDED.app_version, last_counter_id = EXCLUDED.last_counter_id, "
+            "last_seen = now(), connection_count = devices.connection_count + 1",
+            device_id, pack_id, device_model, os_version, app_version, counter_id,
+        )
+
+
+async def list_devices(pack_id: str) -> list[asyncpg.Record]:
+    async with _pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT device_id, device_model, os_version, app_version, last_counter_id, "
+            "first_seen, last_seen, connection_count "
+            "FROM devices WHERE pack_id = $1 ORDER BY last_seen DESC",
+            pack_id,
         )
 
 

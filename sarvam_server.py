@@ -446,9 +446,13 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
     session_start = time.time()
     utterance_count = 0
     audio_buffer = bytearray()
-    # Optional query param so a future multi-counter deployment can tag analytics rows by
-    # physical help-desk location without any protocol/client change (?counter_id=C-14).
+    # Optional query params, all additive to the protocol -- an older client simply omits them
+    # and shows up as "unknown"/blank in the admin panel, nothing breaks.
     counter_id = websocket.query_params.get("counter_id", "unknown")
+    device_id = websocket.query_params.get("device_id")
+    device_model = websocket.query_params.get("device_model")
+    os_version = websocket.query_params.get("os_version")
+    app_version = websocket.query_params.get("app_version")
 
     try:
         if src_lang not in SUPPORTED_LANGUAGES or tgt_lang not in SUPPORTED_LANGUAGES:
@@ -463,7 +467,12 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
 
         await websocket.accept()
         client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-        logger.info("Client connected from %s | %s -> %s (counter=%s)", client, src_lang, tgt_lang, counter_id)
+        logger.info(
+            "Client connected from %s | %s -> %s (counter=%s, device=%s/%s)",
+            client, src_lang, tgt_lang, counter_id, device_model, os_version,
+        )
+        if device_id:
+            await db.upsert_device(device_id, EVENT_PACK, device_model, os_version, app_version, counter_id)
 
         await websocket.send_json(
             {
@@ -532,7 +541,9 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
                 # (src_lang) is fixed for the session, but whichever language the *other*
                 # person is actually detected speaking becomes the new visitor_lang for
                 # every subsequent utterance -- see run_sarvam_pipeline's docstring.
-                visitor_lang = await run_sarvam_pipeline(websocket, final_pcm, src_lang, visitor_lang, counter_id)
+                visitor_lang = await run_sarvam_pipeline(
+                    websocket, final_pcm, src_lang, visitor_lang, counter_id, device_id
+                )
 
             else:
                 logger.warning("Unknown flag byte: 0x%02x", flag)
@@ -552,7 +563,8 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
 
 
 async def run_sarvam_pipeline(
-    websocket: WebSocket, pcm_data: bytes, operator_lang: str, visitor_lang: str, counter_id: str = "unknown"
+    websocket: WebSocket, pcm_data: bytes, operator_lang: str, visitor_lang: str,
+    counter_id: str = "unknown", device_id: str | None = None,
 ) -> str:
     """Runs real STT -> NMT -> TTS via Sarvam AI, streaming each stage's
     result to the client as soon as it's ready. Any failure sends an error
@@ -582,6 +594,7 @@ async def run_sarvam_pipeline(
         await db.log_analytics(
             EVENT_PACK, counter_id, None, None, "none", False, False,
             None, int((time.perf_counter() - pipeline_start) * 1000),
+        device_id=device_id,
         )
         return visitor_lang
     stt_ms = int((time.perf_counter() - stt_start) * 1000)
@@ -600,6 +613,7 @@ async def run_sarvam_pipeline(
             EVENT_PACK, counter_id, detected_bcp47, None, "no_speech", False, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
             audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+        device_id=device_id,
         )
         return visitor_lang
 
@@ -650,6 +664,7 @@ async def run_sarvam_pipeline(
                 EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
                 stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
                 escalated=is_emergency, audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+            device_id=device_id,
             )
             return visitor_lang
         chunk_count = 0
@@ -664,6 +679,7 @@ async def run_sarvam_pipeline(
             EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000), escalated=is_emergency,
             audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+        device_id=device_id,
         )
         return visitor_lang
 
@@ -695,6 +711,7 @@ async def run_sarvam_pipeline(
                     EVENT_PACK, counter_id, actual_src, None, "none", False, False,
                     stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
                     audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+                device_id=device_id,
                 )
                 return visitor_lang
 
@@ -707,6 +724,7 @@ async def run_sarvam_pipeline(
                     stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
                     audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
                     translate_cost_inr=pricing.translate_cost(len(transcript)),
+                device_id=device_id,
                 )
                 return visitor_lang
 
@@ -767,6 +785,7 @@ async def run_sarvam_pipeline(
                         audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
                         translate_cost_inr=translate_cost_val,
                         tts_cost_inr=pricing.tts_cost(synthesized_chars),
+                    device_id=device_id,
                     )
                     return visitor_lang
 
@@ -794,6 +813,7 @@ async def run_sarvam_pipeline(
         audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
         translate_cost_inr=translate_cost_val,
         tts_cost_inr=pricing.tts_cost(synthesized_chars),
+    device_id=device_id,
     )
     return visitor_lang
 

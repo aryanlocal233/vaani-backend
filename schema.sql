@@ -60,6 +60,18 @@ CREATE TABLE IF NOT EXISTS audio_cache (
     FOREIGN KEY (pack_id, faq_id) REFERENCES faq_knowledge(pack_id, faq_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS devices (
+    device_id       TEXT PRIMARY KEY,   -- client-generated UUID, persisted on-device
+    pack_id         TEXT NOT NULL,
+    device_model    TEXT,
+    os_version      TEXT,
+    app_version     TEXT,
+    last_counter_id TEXT,
+    first_seen      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    connection_count INT NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS admin_users (
     id              SERIAL PRIMARY KEY,
     username        TEXT UNIQUE NOT NULL,
@@ -72,6 +84,7 @@ CREATE TABLE IF NOT EXISTS conversation_analytics (
     ts                      TIMESTAMPTZ NOT NULL DEFAULT now(),
     pack_id                 TEXT NOT NULL,
     counter_id              TEXT NOT NULL DEFAULT 'unknown',
+    device_id               TEXT,
     detected_language       TEXT,
     faq_id                  TEXT,
     cache_hit               TEXT NOT NULL DEFAULT 'none',   -- 'faq' | 'none'

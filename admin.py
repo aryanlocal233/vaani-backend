@@ -83,6 +83,19 @@ async def resume_api(request: Request):
     return RedirectResponse("/admin?msg=API+resumed", status_code=303)
 
 
+@router.get("/devices", response_class=HTMLResponse)
+async def devices_page(request: Request):
+    username = require_admin(request)
+    if not username:
+        return RedirectResponse("/admin/login", status_code=303)
+    devices = await db.list_devices(pack_config.EVENT_PACK)
+    return templates.TemplateResponse(request, "devices.html", {
+        "username": username,
+        "pack_id": pack_config.EVENT_PACK,
+        "devices": devices,
+    })
+
+
 @router.get("/cost", response_class=HTMLResponse)
 async def cost_dashboard(request: Request):
     username = require_admin(request)

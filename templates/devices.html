@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — Devices</title>
+{% include "_style.html" %}
+</head><body>
+  <div class="topbar">
+    <h1 style="margin:0;"><a href="/admin" style="color:#9096a3;text-decoration:none;">← Admin</a> / Devices</h1>
+    <span>{{ username }} · <a href="/admin/logout">Log out</a></span>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Known devices — {{ pack_id }}</h2>
+    <p style="color:#9096a3;font-size:13px;">Every physical phone/tablet that has ever connected, identified by a stable ID generated on first install. "Last seen" and connection count help spot a device that's gone quiet, or one connecting suspiciously often.</p>
+    <table>
+      <tr><th>Device</th><th>OS</th><th>App version</th><th>Last counter</th><th>Connections</th><th>First seen</th><th>Last seen</th></tr>
+      {% for d in devices %}
+      <tr>
+        <td class="mono" title="{{ d.device_id }}">{{ d.device_model or "Unknown" }}</td>
+        <td>{{ d.os_version or "—" }}</td>
+        <td>{{ d.app_version or "—" }}</td>
+        <td>{{ d.last_counter_id or "—" }}</td>
+        <td class="num">{{ d.connection_count }}</td>
+        <td>{{ d.first_seen.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ d.last_seen.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="color:#9096a3;">No devices have connected with a device ID yet.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</body></html>
