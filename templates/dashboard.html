@@ -9,6 +9,28 @@
 
   {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
 
+  <div class="card" style="border-color:{{ '#b3261e' if paused else '#0f766e' }};background:{{ '#2c1817' if paused else '#132825' }};">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <strong style="color:{{ '#f87171' if paused else '#6ee7b7' }};font-size:16px;">
+          {{ "⏸ API PAUSED — no requests are being answered" if paused else "● API live and responding" }}
+        </strong>
+        <p style="color:#9096a3;font-size:13px;margin:6px 0 0;">
+          {% if paused %}
+            Every device gets "Service temporarily paused" until you resume — including connections already open right now.
+          {% else %}
+            If you suspect misuse (a runaway/abusive device, unexpected cost spike), pausing stops every request immediately, including on already-connected devices.
+          {% endif %}
+        </p>
+      </div>
+      <form method="post" action="{{ '/admin/resume' if paused else '/admin/pause' }}">
+        <button type="submit" style="margin:0;background:{{ '#0f766e' if paused else '#b3261e' }};color:#fff;">
+          {{ "Resume API" if paused else "Pause API" }}
+        </button>
+      </form>
+    </div>
+  </div>
+
   <div class="card">
     <h2 style="margin-top:0;">Usage summary</h2>
     <div class="stat-grid">

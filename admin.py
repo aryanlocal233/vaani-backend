@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 import db
 import faq_state
 import pack_config
+import runtime_state
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="templates")
@@ -62,7 +63,24 @@ async def dashboard(request: Request):
         "faqs": faqs,
         "summary": summary,
         "msg": request.query_params.get("msg"),
+        "paused": runtime_state.PAUSED,
     })
+
+
+@router.post("/pause")
+async def pause_api(request: Request):
+    if not require_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    await runtime_state.set_paused(True)
+    return RedirectResponse("/admin?msg=API+paused", status_code=303)
+
+
+@router.post("/resume")
+async def resume_api(request: Request):
+    if not require_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    await runtime_state.set_paused(False)
+    return RedirectResponse("/admin?msg=API+resumed", status_code=303)
 
 
 @router.get("/cost", response_class=HTMLResponse)

@@ -26,6 +26,10 @@ async def close_pool() -> None:
         await _pool.close()
 
 
+def get_pool() -> asyncpg.Pool:
+    return _pool
+
+
 async def load_pack(pack_id: str) -> list[dict]:
     """Loads one pack's FAQ entries into the same in-memory shape the pipeline
     already matches against: [{id, category, keywords: {lang: [...]}, answer: {lang: text}}]."""

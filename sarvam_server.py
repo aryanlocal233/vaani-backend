@@ -32,6 +32,7 @@ import db
 import faq_state
 import pack_config
 import pricing
+import runtime_state
 from pack_config import EVENT_PACK, SUPPORTED_LANGUAGES
 
 load_dotenv()
@@ -126,6 +127,7 @@ FLAG_END_OF_UTTERANCE = 0x02
 FLAG_TTS_AUDIO = 0x03
 
 CLOSE_CODE_INVALID_LANGUAGE = 4008
+CLOSE_CODE_PAUSED = 4009
 TTS_CHUNK_SIZE = 8192
 
 # Mela help-desk FAQ answers, loaded at startup from Postgres for EVENT_PACK (db.py) -- this is
@@ -428,6 +430,7 @@ async def sarvam_tts(text: str, tgt_lang: str) -> bytes:
 async def startup_event() -> None:
     await db.init_pool()
     await faq_state.reload()
+    await runtime_state.init()
 
 
 @app.get("/health")
@@ -451,6 +454,11 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
         if src_lang not in SUPPORTED_LANGUAGES or tgt_lang not in SUPPORTED_LANGUAGES:
             logger.warning("Rejecting connection: unsupported language pair %s->%s", src_lang, tgt_lang)
             await websocket.close(code=CLOSE_CODE_INVALID_LANGUAGE, reason="Unsupported language")
+            return
+
+        if runtime_state.PAUSED:
+            logger.warning("Rejecting connection: API paused by admin")
+            await websocket.close(code=CLOSE_CODE_PAUSED, reason="Service temporarily paused")
             return
 
         await websocket.accept()
@@ -504,6 +512,14 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
 
                 if len(final_pcm) == 0:
                     logger.info("End-of-utterance received with no audio buffered; skipping pipeline")
+                    continue
+
+                if runtime_state.PAUSED:
+                    # Checked here too, not just at connect time: an admin pausing mid-misuse
+                    # needs to stop an *already-open* connection immediately, not just block new
+                    # ones -- this takes effect on literally the next utterance, no reconnect.
+                    logger.warning("Dropping utterance: API paused by admin")
+                    await websocket.send_json({"type": "error", "message": "Service temporarily paused"})
                     continue
 
                 utterance_count += 1

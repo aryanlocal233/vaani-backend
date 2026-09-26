@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS knowledge_packs (
     id          TEXT PRIMARY KEY,       -- e.g. 'gaya_ji'
     name        TEXT NOT NULL,
     active      BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Admin kill-switch: when true, the API stops responding to every request for this pack
+    -- (both new connections and utterances on already-open ones) until an admin resumes it --
+    -- see runtime_state.py.
+    paused      BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
