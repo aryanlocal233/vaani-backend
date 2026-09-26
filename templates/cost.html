@@ -1,0 +1,50 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — Cost</title>
+{% include "_style.html" %}
+</head><body>
+  <div class="topbar">
+    <h1 style="margin:0;"><a href="/admin" style="color:#9096a3;text-decoration:none;">← Admin</a> / Cost</h1>
+    <span>{{ username }} · <a href="/admin/logout">Log out</a></span>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Today</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.today_total) }}</div><div class="label">Total spent today</div></div>
+      <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.cost_avoided_today) }}</div><div class="label">Est. avoided by caching</div></div>
+      <div class="stat"><div class="num">{{ cost.cache_hits_today }}</div><div class="label">FAQ cache hits today</div></div>
+      <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.all_time_total) }}</div><div class="label">All-time total spent</div></div>
+    </div>
+    <p style="color:#9096a3;font-size:13px;margin-top:14px;">
+      "Avoided" = today's cache hits × the average translate+TTS cost of today's non-cached requests — a real observed average, not an assumed rate. STT is always billed (every utterance has to be transcribed) whether or not it hits the FAQ cache.
+    </p>
+    <div style="display:flex;gap:24px;margin-top:18px;font-size:14px;">
+      <div><strong>Speech-to-text:</strong> ₹{{ "%.2f"|format(cost.today_stt) }}</div>
+      <div><strong>Translation:</strong> ₹{{ "%.2f"|format(cost.today_translate) }}</div>
+      <div><strong>Text-to-speech:</strong> ₹{{ "%.2f"|format(cost.today_tts) }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">Hourly usage</h2>
+      <form method="get" action="/admin/cost" style="display:flex;gap:8px;align-items:center;">
+        <input type="date" name="day" value="{{ day }}" max="{{ today }}" style="width:auto;margin:0;">
+        <button type="submit" style="margin:0;padding:8px 14px;">View</button>
+      </form>
+    </div>
+    <table>
+      <tr><th>Hour</th><th>Conversations</th><th>Cache hits</th><th>Cost (₹)</th></tr>
+      {% for row in hourly %}
+      <tr>
+        <td>{{ row.hour.strftime("%H:00") }}</td>
+        <td>{{ row.conversations }}</td>
+        <td>{{ row.cache_hits }}</td>
+        <td>₹{{ "%.2f"|format(row.cost_inr) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" style="color:#9096a3;">No conversations on this day.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</body></html>

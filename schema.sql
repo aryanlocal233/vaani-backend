@@ -75,6 +75,14 @@ CREATE TABLE IF NOT EXISTS conversation_analytics (
     tts_api_used            BOOLEAN NOT NULL DEFAULT FALSE,
     stt_ms                  INT,
     response_ms             INT,
-    escalated               BOOLEAN NOT NULL DEFAULT FALSE
+    escalated               BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Real per-request cost, computed from Sarvam's published pay-as-you-go rates (pricing.py)
+    -- at logging time -- not a post-hoc estimate. Kept as separate STT/translate/TTS columns
+    -- (rather than one total) so the cost dashboard can show which stage actually costs money,
+    -- and so "cost avoided by caching" can be computed as the translate+TTS a cache hit skipped.
+    audio_duration_ms       INT NOT NULL DEFAULT 0,
+    stt_cost_inr            NUMERIC(10,4) NOT NULL DEFAULT 0,
+    translate_cost_inr      NUMERIC(10,4) NOT NULL DEFAULT 0,
+    tts_cost_inr            NUMERIC(10,4) NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_analytics_pack_ts ON conversation_analytics (pack_id, ts);

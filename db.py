@@ -5,6 +5,7 @@ via migrate_faq.py, not a code change here.
 """
 from __future__ import annotations
 
+import datetime
 import os
 import time
 
@@ -95,15 +96,21 @@ async def log_analytics(
     stt_ms: int | None,
     response_ms: int | None,
     escalated: bool = False,
+    audio_duration_ms: int = 0,
+    stt_cost_inr: float = 0.0,
+    translate_cost_inr: float = 0.0,
+    tts_cost_inr: float = 0.0,
 ) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO conversation_analytics "
             "(pack_id, counter_id, detected_language, faq_id, cache_hit, translation_api_used, "
-            " tts_api_used, stt_ms, response_ms, escalated) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            " tts_api_used, stt_ms, response_ms, escalated, audio_duration_ms, "
+            " stt_cost_inr, translate_cost_inr, tts_cost_inr) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
             pack_id, counter_id, detected_language, faq_id, cache_hit,
             translation_api_used, tts_api_used, stt_ms, response_ms, escalated,
+            audio_duration_ms, stt_cost_inr, translate_cost_inr, tts_cost_inr,
         )
 
 
@@ -130,6 +137,74 @@ async def get_analytics_summary(pack_id: str) -> dict:
         "cache_hit_rate": round(cache_hits / total * 100, 1) if total else 0.0,
         "escalated": row["escalated"] or 0,
     }
+
+
+async def get_cost_summary(pack_id: str) -> dict:
+    """Real cost, summed from what was actually logged per request (pricing.py rates applied
+    at logging time) -- not recomputed here. cost_avoided_today is the one estimated figure:
+    today's cache hits multiplied by the average translate+TTS cost of today's *non*-cache-hit
+    requests, i.e. "what today's repeat questions would have cost without the FAQ cache,
+    based on what your actual uncached requests cost today" -- grounded in real observed
+    averages, not an assumed rate."""
+    async with _pool.acquire() as conn:
+        today_row = await conn.fetchrow(
+            "SELECT "
+            "COALESCE(SUM(stt_cost_inr),0) AS stt, "
+            "COALESCE(SUM(translate_cost_inr),0) AS translate, "
+            "COALESCE(SUM(tts_cost_inr),0) AS tts, "
+            "COUNT(*) FILTER (WHERE cache_hit='faq') AS cache_hits "
+            "FROM conversation_analytics WHERE pack_id=$1 AND ts::date = now()::date",
+            pack_id,
+        )
+        total_row = await conn.fetchrow(
+            "SELECT COALESCE(SUM(stt_cost_inr + translate_cost_inr + tts_cost_inr), 0) AS total "
+            "FROM conversation_analytics WHERE pack_id=$1",
+            pack_id,
+        )
+        avg_row = await conn.fetchrow(
+            "SELECT AVG(translate_cost_inr + tts_cost_inr) AS avg_full_cost "
+            "FROM conversation_analytics "
+            "WHERE pack_id=$1 AND ts::date = now()::date AND cache_hit != 'faq' AND translation_api_used",
+            pack_id,
+        )
+
+    today_total = float(today_row["stt"] + today_row["translate"] + today_row["tts"])
+    avg_full_cost = float(avg_row["avg_full_cost"] or 0)
+    cache_hits_today = today_row["cache_hits"] or 0
+
+    return {
+        "today_stt": float(today_row["stt"]),
+        "today_translate": float(today_row["translate"]),
+        "today_tts": float(today_row["tts"]),
+        "today_total": today_total,
+        "all_time_total": float(total_row["total"]),
+        "cache_hits_today": cache_hits_today,
+        "cost_avoided_today": cache_hits_today * avg_full_cost,
+    }
+
+
+async def get_hourly_usage(pack_id: str, day: datetime.date) -> list[dict]:
+    """Returns one row per hour that had at least one conversation on the given day."""
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT date_trunc('hour', ts) AS hour, "
+            "COUNT(*) AS conversations, "
+            "COUNT(*) FILTER (WHERE cache_hit='faq') AS cache_hits, "
+            "SUM(stt_cost_inr + translate_cost_inr + tts_cost_inr) AS cost_inr "
+            "FROM conversation_analytics "
+            "WHERE pack_id = $1 AND ts::date = $2::date "
+            "GROUP BY 1 ORDER BY 1",
+            pack_id, day,
+        )
+    return [
+        {
+            "hour": row["hour"],
+            "conversations": row["conversations"],
+            "cache_hits": row["cache_hits"],
+            "cost_inr": float(row["cost_inr"] or 0),
+        }
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

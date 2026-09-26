@@ -4,6 +4,8 @@ middleware-level gate, so a new route added here must remember to call
 require_admin() as its first line."""
 from __future__ import annotations
 
+import datetime
+
 import bcrypt
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -60,6 +62,26 @@ async def dashboard(request: Request):
         "faqs": faqs,
         "summary": summary,
         "msg": request.query_params.get("msg"),
+    })
+
+
+@router.get("/cost", response_class=HTMLResponse)
+async def cost_dashboard(request: Request):
+    username = require_admin(request)
+    if not username:
+        return RedirectResponse("/admin/login", status_code=303)
+
+    day = request.query_params.get("day") or datetime.date.today().isoformat()
+    cost_summary = await db.get_cost_summary(pack_config.EVENT_PACK)
+    hourly = await db.get_hourly_usage(pack_config.EVENT_PACK, datetime.date.fromisoformat(day))
+
+    return templates.TemplateResponse(request, "cost.html", {
+        "username": username,
+        "pack_id": pack_config.EVENT_PACK,
+        "cost": cost_summary,
+        "hourly": hourly,
+        "day": day,
+        "today": datetime.date.today().isoformat(),
     })
 
 
