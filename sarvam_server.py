@@ -146,6 +146,38 @@ def faq_voice_for(lang: str) -> str:
     return SPEAKER_MAP.get(bcp47, DEFAULT_SPEAKER)
 
 
+async def resolve_or_translate_faq_answer(faq_entry: dict, lang: str) -> tuple[str, str, float]:
+    """Returns (answer_text, answer_lang, translate_cost_incurred). If no answer is authored for
+    `lang` yet, live-translates the best available authored answer into it once and caches the
+    result as a new (machine-translated, unreviewed) authored answer -- via the same upsert path
+    an admin edit uses -- so this only ever costs a real API call the *first* time any given
+    language is ever needed for this FAQ, not on every subsequent pilgrim/operator who needs it.
+
+    Never raises: if the live translation call itself fails, falls back to the best available
+    authored text/language rather than leaving the pilgrim or operator with nothing -- worse to
+    answer in a language *someone* understands than to error out entirely.
+    """
+    if lang in faq_entry["answer"]:
+        return faq_entry["answer"][lang], lang, 0.0
+
+    source_lang = "hi" if "hi" in faq_entry["answer"] else next(iter(faq_entry["answer"]))
+    source_text = faq_entry["answer"][source_lang]
+
+    try:
+        translated_text = await sarvam_translate(source_text, source_lang, lang)
+    except SarvamAPIError as exc:
+        logger.error(
+            "Live FAQ-answer translation failed for %s (%s->%s): %s",
+            faq_entry["id"], source_lang, lang, exc,
+        )
+        return source_text, source_lang, 0.0
+
+    await db.upsert_faq_answer(EVENT_PACK, faq_entry["id"], lang, translated_text, "auto-translated", reviewed=False)
+    faq_entry["answer"][lang] = translated_text  # in-memory copy too, so this same process sees it immediately
+    await faq_state.reload()
+    return translated_text, lang, pricing.translate_cost(len(source_text))
+
+
 async def get_faq_audio(entry: dict, lang: str, text: str) -> bytes:
     """Durable audio cache: checks Postgres/disk first (survives container restarts), only
     calls Sarvam TTS on a true first-ever synthesis of this (pack, faq, language, voice)."""
@@ -643,7 +675,7 @@ async def run_sarvam_pipeline(
     faq_match = faq_state.match_faq(transcript, actual_src)
     if faq_match is not None:
         faq_entry, match_type = faq_match
-        answer_text, answer_lang = faq_state.resolve_faq_answer(faq_entry, actual_src)
+        answer_text, answer_lang, faq_translate_cost = await resolve_or_translate_faq_answer(faq_entry, actual_src)
         # Emergency-category matches still get the pre-approved safe instruction spoken
         # immediately (never left unanswered), but are flagged for the dashboard/operator
         # queue -- loose matching must never be the only thing standing between a pilgrim
@@ -655,15 +687,28 @@ async def run_sarvam_pipeline(
             match_type, faq_entry["id"], answer_lang, faq_entry["category"],
         )
         await websocket.send_json({"type": "translation", "text": answer_text, "lang": answer_lang})
+
+        # The pilgrim hears the answer spoken in their own language above (self-service) -- but
+        # that path never runs the general translate step, so the operator otherwise sees nothing
+        # in *their* language for an FAQ hit. Only needed when the pilgrim, not the operator, was
+        # the one who spoke (if the operator matched an FAQ, answer_lang is already their language).
+        if actual_src != operator_lang:
+            operator_text, _, operator_translate_cost = await resolve_or_translate_faq_answer(faq_entry, operator_lang)
+            faq_translate_cost += operator_translate_cost
+            await websocket.send_json({"type": "operator_translation", "text": operator_text, "lang": operator_lang})
+
+        translation_api_used = faq_translate_cost > 0
+
         try:
             pcm_audio = await get_faq_audio(faq_entry, answer_lang, answer_text)
         except SarvamAPIError as exc:
             logger.error("FAQ TTS failed for %s: %s", faq_entry["id"], exc)
             await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
             await db.log_analytics(
-                EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
+                EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", translation_api_used, False,
                 stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
                 escalated=is_emergency, audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+                translate_cost_inr=faq_translate_cost,
             device_id=device_id,
             )
             return visitor_lang
@@ -673,12 +718,14 @@ async def run_sarvam_pipeline(
             await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
             chunk_count += 1
         logger.info("FAQ pipeline complete: sent %d audio chunks (%d bytes)", chunk_count, len(pcm_audio))
-        # Translate and TTS were both skipped -- this is exactly the cost the FAQ cache saves,
-        # only STT (unavoidable -- we still have to hear what was said) is a real charge here.
+        # Translate and TTS were both skipped in the common (already-authored) case -- this is
+        # exactly the cost the FAQ cache saves. Only STT (unavoidable) plus, rarely, a one-time
+        # live-translate for a language nobody has needed yet, are real charges here.
         await db.log_analytics(
-            EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
+            EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", translation_api_used, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000), escalated=is_emergency,
             audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+            translate_cost_inr=faq_translate_cost,
         device_id=device_id,
         )
         return visitor_lang

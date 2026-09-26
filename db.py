@@ -406,16 +406,20 @@ async def replace_faq_keywords(pack_id: str, faq_id: str, language: str, keyword
                     )
 
 
-async def upsert_faq_answer(pack_id: str, faq_id: str, language: str, answer_text: str, reviewed_by: str) -> None:
+async def upsert_faq_answer(
+    pack_id: str, faq_id: str, language: str, answer_text: str, reviewed_by: str, reviewed: bool = True
+) -> None:
     """Writes the answer and invalidates any cached audio for this (pack, faq, language) --
-    a changed approved_answer must never keep serving the old cached voice."""
+    a changed approved_answer must never keep serving the old cached voice. reviewed=False marks
+    a machine-translated answer (see sarvam_server.resolve_or_translate_faq_answer) so an admin
+    can find and verify it later -- distinct from an answer they typed/approved themselves."""
     async with _pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO faq_answers (pack_id, faq_id, language, answer_text, reviewed, updated_at) "
-            "VALUES ($1,$2,$3,$4,TRUE,now()) "
+            "VALUES ($1,$2,$3,$4,$5,now()) "
             "ON CONFLICT (pack_id, faq_id, language) DO UPDATE SET "
-            "answer_text = EXCLUDED.answer_text, reviewed = TRUE, updated_at = now()",
-            pack_id, faq_id, language, answer_text,
+            "answer_text = EXCLUDED.answer_text, reviewed = $5, updated_at = now()",
+            pack_id, faq_id, language, answer_text, reviewed,
         )
     await invalidate_audio_cache(pack_id, faq_id, language)
 
