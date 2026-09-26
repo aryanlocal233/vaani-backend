@@ -10,9 +10,12 @@ the environment.
 """
 from __future__ import annotations
 
+import array
+import asyncio
 import base64
 import logging
 import os
+import re
 import struct
 import sys
 import time
@@ -21,6 +24,13 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+
+import admin
+import db
+import faq_state
+import pack_config
+from pack_config import EVENT_PACK, SUPPORTED_LANGUAGES
 
 load_dotenv()
 
@@ -62,13 +72,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-http_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_connections=50))
+if not pack_config.SESSION_SECRET:
+    raise RuntimeError(
+        "SESSION_SECRET is not set -- required to sign the admin panel's session cookie. "
+        "Set it in .env (any long random string)."
+    )
+app.add_middleware(SessionMiddleware, secret_key=pack_config.SESSION_SECRET, same_site="lax")
+app.include_router(admin.router)
 
-SUPPORTED_LANGUAGES = {
-    "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "bn": "Bengali",
-    "kn": "Kannada", "mr": "Marathi", "gu": "Gujarati", "pa": "Punjabi",
-    "ml": "Malayalam", "or": "Odia", "as": "Assamese", "en": "English",
-}
+http_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_connections=50))
 
 # Short ISO code -> Sarvam BCP-47 code. Verified against Sarvam's actual
 # accepted-values list (returned in its own 400 error responses) for all 12
@@ -114,7 +126,53 @@ FLAG_TTS_AUDIO = 0x03
 CLOSE_CODE_INVALID_LANGUAGE = 4008
 TTS_CHUNK_SIZE = 8192
 
+# Mela help-desk FAQ answers, loaded at startup from Postgres for EVENT_PACK (db.py) -- this is
+# what turns Vaani from a plain translator into a help-desk system: a pilgrim's question that
+# matches one of these gets answered instantly, in their own language, without a round trip
+# through NMT or a live TTS call -- both cheaper (no per-character translate/TTS billing for
+# repeat questions) and near-instant (no Sarvam API latency at all) compared to the full
+# STT->NMT->TTS pipeline every other utterance goes through.
+#
+# Matching is a plain substring/keyword check per detected language, not semantic search yet --
+# deliberately simple for a first version covering the handful of questions pilgrims actually
+# repeat at a mela counter. Extend a pack by adding rows via migrate_faq.py (or a future admin
+# API), not by editing this file.
+def faq_voice_for(lang: str) -> str:
+    bcp47 = LANGUAGE_CODE_MAP.get(lang, f"{lang}-IN")
+    return SPEAKER_MAP.get(bcp47, DEFAULT_SPEAKER)
+
+
+async def get_faq_audio(entry: dict, lang: str, text: str) -> bytes:
+    """Durable audio cache: checks Postgres/disk first (survives container restarts), only
+    calls Sarvam TTS on a true first-ever synthesis of this (pack, faq, language, voice)."""
+    voice = faq_voice_for(lang)
+    cached_path = await db.get_cached_audio_path(EVENT_PACK, entry["id"], lang, voice)
+    if cached_path is not None:
+        cached_bytes = db.read_audio_file(cached_path)
+        if cached_bytes is not None:
+            return cached_bytes
+
+    pcm = await sarvam_tts(text, lang)
+    pcm = apply_edge_fade(pcm)
+    await db.save_audio_cache(EVENT_PACK, entry["id"], lang, voice, pcm)
+    return pcm
+
+
 WAV_HEADER_SIZE = 44
+
+# Splits on Latin sentence punctuation and the Devanagari-family danda/double-danda (used by
+# several of our supported scripts -- Hindi, Marathi, Bengali, Odia, Assamese formal writing).
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?।॥])\s+")
+
+
+def split_sentences(text: str) -> list[str]:
+    """Splits translated text into sentence-ish chunks for TTS pipelining (see
+    run_sarvam_pipeline). A single-sentence utterance -- the common case -- yields exactly one
+    part, so this is a no-op for short exchanges; it only changes behavior for longer,
+    multi-sentence responses.
+    """
+    parts = [p.strip() for p in SENTENCE_SPLIT_RE.split(text) if p.strip()]
+    return parts or [text.strip()]
 
 
 class SarvamAPIError(Exception):
@@ -149,6 +207,33 @@ def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 1, bi
     return header + pcm_bytes
 
 
+def apply_edge_fade(pcm_bytes: bytes, fade_ms: float = 5.0, sample_rate: int = 16000) -> bytes:
+    """Ramps the first/last `fade_ms` of a PCM16 mono clip to/from silence.
+
+    Each sentence in run_sarvam_pipeline is synthesized as an independent TTS call and their
+    PCM outputs are concatenated back to back on one continuous AudioTrack stream client-side.
+    Two separately-synthesized clips almost never meet at the same amplitude/phase, so joining
+    them raw produces an audible click/pop at every sentence boundary -- this is what shows up
+    as "crackling" on multi-sentence responses. A short (~5ms, inaudible as a fade but long
+    enough to kill the discontinuity) linear ramp at each edge fixes that without needing a
+    real crossfade between clips.
+    """
+    fade_samples = int(sample_rate * fade_ms / 1000)
+    samples = array.array("h")
+    samples.frombytes(pcm_bytes[: len(pcm_bytes) - (len(pcm_bytes) % 2)])
+    total = len(samples)
+    n = min(fade_samples, total // 2)
+    if n <= 0:
+        return pcm_bytes
+
+    for i in range(n):
+        samples[i] = int(samples[i] * (i / n))
+        j = total - 1 - i
+        samples[j] = int(samples[j] * (i / n))
+
+    return samples.tobytes()
+
+
 def wav_to_pcm(wav_bytes: bytes) -> bytes:
     """Locates the `data` chunk by walking the WAV's RIFF chunk list, returning
     its contents as raw PCM. A fixed 44-byte offset only holds for a WAV with
@@ -171,11 +256,29 @@ def wav_to_pcm(wav_bytes: bytes) -> bytes:
     return wav_bytes[WAV_HEADER_SIZE:]
 
 
-async def sarvam_stt(pcm_data: bytes, src_lang: str) -> str:
-    language_code = LANGUAGE_CODE_MAP.get(src_lang, f"{src_lang}-IN")
+REVERSE_LANGUAGE_CODE_MAP = {bcp47: short for short, bcp47 in LANGUAGE_CODE_MAP.items()}
+
+# Any of these keys, if present in a Sarvam STT response, is treated as the
+# model's detected-language field. Kept as a list (checked in order) rather
+# than a single hardcoded key because Sarvam's auto-detect response shape
+# isn't confirmed from docs alone -- the [STT] Full response log line below
+# should be used to verify which key is actually present before relying on
+# this in production, and this list extended if it's something else.
+DETECTED_LANGUAGE_KEYS = ("language_code", "detected_language_code", "lang_code")
+
+
+async def sarvam_stt(pcm_data: bytes, language_code: str) -> tuple[str, str | None]:
+    """Transcribes audio via Sarvam's saaras STT.
+
+    `language_code` may be a specific BCP-47 code (forces that language) or
+    "unknown" to have Sarvam auto-detect which language was actually spoken --
+    saaras supports this across all languages in SUPPORTED_LANGUAGES. Returns
+    (transcript, detected_language_code); detected_language_code is None if
+    the response didn't include one (e.g. a forced, non-"unknown" call).
+    """
     wav_bytes = pcm_to_wav(pcm_data)
 
-    logger.info("[STT] Sending %d bytes of audio...", len(pcm_data))
+    logger.info("[STT] Sending %d bytes of audio (language_code=%s)...", len(pcm_data), language_code)
     start = time.perf_counter()
 
     try:
@@ -194,9 +297,12 @@ async def sarvam_stt(pcm_data: bytes, src_lang: str) -> str:
         raise SarvamAPIError(f"STT request failed: {exc}") from exc
 
     transcript = body.get("transcript", "")
+    detected_code = next((body[key] for key in DETECTED_LANGUAGE_KEYS if body.get(key)), None)
     duration_ms = (time.perf_counter() - start) * 1000
-    logger.info('[STT] Transcript: "%s" (%.0fms)', transcript, duration_ms)
-    return transcript
+    logger.info(
+        '[STT] Transcript: "%s" (detected=%s, %.0fms)', transcript, detected_code, duration_ms
+    )
+    return transcript, detected_code
 
 
 async def sarvam_translate(text: str, src_lang: str, tgt_lang: str) -> str:
@@ -257,7 +363,15 @@ async def sarvam_tts(text: str, tgt_lang: str) -> bytes:
         "speaker": speaker,
         "pitch": 0,
         "pace": 1.0,
-        "loudness": 1.5,
+        # Measured directly against the live API: at 1.5 (the original setting), peaks sat at
+        # 85-92% of int16 full scale across languages/exclamatory text -- not clipped by Sarvam
+        # itself, but with almost no headroom left for anything downstream (phone media-stream
+        # loudness enhancers, DRC, the speaker amp) before it clips there instead. Note this
+        # parameter is NOT a simple linear gain -- 1.0 measured a *higher* peak than 1.5 in a
+        # side-by-side test, so don't assume proportionality if retuning this. 0.7 measured
+        # ~60% FS, giving real margin; if it's too quiet in a real mela, raise device media
+        # volume rather than this value (lossless) rather than eating into headroom again.
+        "loudness": 0.7,
         "speech_sample_rate": 16000,
         "enable_preprocessing": True,
         "model": "bulbul:v3",
@@ -291,9 +405,18 @@ async def sarvam_tts(text: str, tgt_lang: str) -> bytes:
     return pcm_bytes
 
 
+@app.on_event("startup")
+async def startup_event() -> None:
+    await db.init_pool()
+    await faq_state.reload()
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "mode": "sarvam", "api_key_configured": bool(SARVAM_API_KEY)}
+    return {
+        "status": "ok", "mode": "sarvam", "event_pack": EVENT_PACK,
+        "faq_count": len(faq_state.FAQ_ENTRIES), "api_key_configured": bool(SARVAM_API_KEY),
+    }
 
 
 @app.websocket("/ws/translate/{src_lang}/{tgt_lang}")
@@ -301,6 +424,9 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
     session_start = time.time()
     utterance_count = 0
     audio_buffer = bytearray()
+    # Optional query param so a future multi-counter deployment can tag analytics rows by
+    # physical help-desk location without any protocol/client change (?counter_id=C-14).
+    counter_id = websocket.query_params.get("counter_id", "unknown")
 
     try:
         if src_lang not in SUPPORTED_LANGUAGES or tgt_lang not in SUPPORTED_LANGUAGES:
@@ -310,7 +436,7 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
 
         await websocket.accept()
         client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
-        logger.info("Client connected from %s | %s -> %s", client, src_lang, tgt_lang)
+        logger.info("Client connected from %s | %s -> %s (counter=%s)", client, src_lang, tgt_lang, counter_id)
 
         await websocket.send_json(
             {
@@ -361,7 +487,7 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
                     len(final_pcm),
                     utterance_count,
                 )
-                await run_sarvam_pipeline(websocket, final_pcm, src_lang, tgt_lang)
+                await run_sarvam_pipeline(websocket, final_pcm, src_lang, tgt_lang, counter_id)
 
             else:
                 logger.warning("Unknown flag byte: 0x%02x", flag)
@@ -380,27 +506,94 @@ async def websocket_translate(websocket: WebSocket, src_lang: str, tgt_lang: str
         )
 
 
-async def run_sarvam_pipeline(websocket: WebSocket, pcm_data: bytes, src_lang: str, tgt_lang: str) -> None:
+async def run_sarvam_pipeline(
+    websocket: WebSocket, pcm_data: bytes, src_lang: str, tgt_lang: str, counter_id: str = "unknown"
+) -> None:
     """Runs real STT -> NMT -> TTS via Sarvam AI, streaming each stage's
     result to the client as soon as it's ready. Any failure sends an error
     JSON frame and returns -- never raises out of this function.
+
+    The session's URL fixes a *pair* of languages (src_lang, tgt_lang), but
+    either person at the counter may speak either one -- a session opened as
+    hi/or must translate hi->or when Hindi is spoken and or->hi when Odia is
+    spoken, without the client reconnecting. So STT runs in auto-detect mode
+    ("unknown") rather than being forced to src_lang, and the actual
+    direction for this utterance is resolved from what Sarvam detected.
     """
+    pipeline_start = time.perf_counter()
+
+    stt_start = time.perf_counter()
     try:
-        transcript = await sarvam_stt(pcm_data, src_lang)
+        transcript, detected_bcp47 = await sarvam_stt(pcm_data, "unknown")
     except SarvamAPIError as exc:
         logger.error("STT failed: %s", exc)
         await websocket.send_json({"type": "error", "message": f"Speech recognition failed: {exc}"})
         return
+    stt_ms = int((time.perf_counter() - stt_start) * 1000)
 
     if not transcript.strip():
         logger.warning("STT returned empty transcript; sending no_speech and skipping NMT/TTS")
         await websocket.send_json({"type": "no_speech", "message": "No speech detected"})
+        await db.log_analytics(
+            EVENT_PACK, counter_id, detected_bcp47, None, "none", False, False,
+            stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
+        )
         return
 
-    await websocket.send_json({"type": "transcript", "text": transcript, "final": True, "lang": src_lang})
+    detected_short = REVERSE_LANGUAGE_CODE_MAP.get(detected_bcp47 or "")
+    if detected_short == tgt_lang:
+        actual_src, actual_tgt = tgt_lang, src_lang
+    elif detected_short == src_lang:
+        actual_src, actual_tgt = src_lang, tgt_lang
+    else:
+        # Detected language isn't either configured language (misdetection,
+        # background noise, or Sarvam didn't return a usable field at all --
+        # check the "[STT] Full response" log if this fires a lot). Fall back
+        # to the session's originally assumed direction rather than guessing
+        # a language the user never selected.
+        if detected_short is not None:
+            logger.warning(
+                "Detected language '%s' is outside configured pair (%s, %s); "
+                "falling back to %s->%s",
+                detected_short, src_lang, tgt_lang, src_lang, tgt_lang,
+            )
+        actual_src, actual_tgt = src_lang, tgt_lang
+
+    await websocket.send_json({"type": "transcript", "text": transcript, "final": True, "lang": actual_src})
+
+    faq_entry = faq_state.match_faq(transcript, actual_src)
+    if faq_entry is not None:
+        answer_text, answer_lang = faq_state.resolve_faq_answer(faq_entry, actual_src)
+        # Emergency-category matches still get the pre-approved safe instruction spoken
+        # immediately (never left unanswered), but are flagged for the dashboard/operator
+        # queue -- loose matching must never be the only thing standing between a pilgrim
+        # and help for a medical/missing-person/police situation.
+        is_emergency = faq_entry["category"] == "emergency"
+        logger.info(
+            "FAQ matched: id=%s lang=%s category=%s -> answering instantly",
+            faq_entry["id"], answer_lang, faq_entry["category"],
+        )
+        await websocket.send_json({"type": "translation", "text": answer_text, "lang": answer_lang})
+        try:
+            pcm_audio = await get_faq_audio(faq_entry, answer_lang, answer_text)
+        except SarvamAPIError as exc:
+            logger.error("FAQ TTS failed for %s: %s", faq_entry["id"], exc)
+            await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
+            return
+        chunk_count = 0
+        for offset in range(0, len(pcm_audio), TTS_CHUNK_SIZE):
+            chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
+            await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
+            chunk_count += 1
+        logger.info("FAQ pipeline complete: sent %d audio chunks (%d bytes)", chunk_count, len(pcm_audio))
+        await db.log_analytics(
+            EVENT_PACK, counter_id, actual_src, faq_entry["id"], "faq", False, False,
+            stt_ms, int((time.perf_counter() - pipeline_start) * 1000), escalated=is_emergency,
+        )
+        return
 
     try:
-        translated_text = await sarvam_translate(transcript, src_lang, tgt_lang)
+        translated_text = await sarvam_translate(transcript, actual_src, actual_tgt)
     except SarvamAPIError as exc:
         logger.error("Translation failed: %s", exc)
         await websocket.send_json({"type": "error", "message": f"Translation failed: {exc}"})
@@ -411,24 +604,55 @@ async def run_sarvam_pipeline(websocket: WebSocket, pcm_data: bytes, src_lang: s
         await websocket.send_json({"type": "error", "message": "Translation returned empty result"})
         return
 
-    await websocket.send_json({"type": "translation", "text": translated_text, "lang": tgt_lang})
+    unknown_question_note = (
+        "No FAQ match -- fell through to live translation. If this question recurs, it's a "
+        "candidate for a new approved FAQ entry (see the 'frequently unanswered' report)."
+    )
+    logger.info("%s | transcript=%r", unknown_question_note, transcript)
 
-    try:
-        pcm_audio = await sarvam_tts(translated_text, tgt_lang)
-    except SarvamAPIError as exc:
-        logger.error("TTS failed: %s", exc)
-        await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
-        return
+    await websocket.send_json({"type": "translation", "text": translated_text, "lang": actual_tgt})
+
+    # Latency: a single sarvam_tts() call over the whole translated_text blocks until every
+    # sentence is synthesized before the client hears anything. Splitting into sentences and
+    # firing all of them at Sarvam concurrently (asyncio.create_task, not sequential awaits)
+    # lets synthesis of sentence 2+ happen in the background while sentence 1's audio is
+    # already being sent -- "time to first audio" drops to roughly one sentence's TTS latency
+    # instead of the whole response's. For the common single-sentence reply this is a no-op:
+    # one sentence in, one TTS call, identical to before.
+    sentences = split_sentences(translated_text)
+    tts_tasks = [asyncio.create_task(sarvam_tts(sentence, actual_tgt)) for sentence in sentences]
 
     chunk_count = 0
-    for offset in range(0, len(pcm_audio), TTS_CHUNK_SIZE):
-        chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
-        await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
-        chunk_count += 1
+    total_bytes = 0
+    try:
+        for sentence, task in zip(sentences, tts_tasks):
+            try:
+                pcm_audio = await task
+            except SarvamAPIError as exc:
+                logger.error("TTS failed for sentence %r: %s", sentence, exc)
+                await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
+                return
 
-    logger.info("Pipeline complete: sent %d audio chunks (%d bytes)", chunk_count, len(pcm_audio))
+            pcm_audio = apply_edge_fade(pcm_audio)
+
+            for offset in range(0, len(pcm_audio), TTS_CHUNK_SIZE):
+                chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
+                await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
+                chunk_count += 1
+            total_bytes += len(pcm_audio)
+    finally:
+        for task in tts_tasks:
+            if not task.done():
+                task.cancel()
+
+    logger.info("Pipeline complete: sent %d audio chunks (%d bytes, %d sentence(s))", chunk_count, total_bytes, len(sentences))
+    await db.log_analytics(
+        EVENT_PACK, counter_id, actual_src, None, "none", True, True,
+        stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     await http_client.aclose()
+    await db.close_pool()

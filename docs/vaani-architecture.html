@@ -1,0 +1,438 @@
+<title>Vaani Cache-First Architecture</title>
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --border:#dde1e7;
+  --ink:#14181f; --ink-dim:#565f6e;
+  --accent:#c2660b; --accent-ink:#7a4008;
+  --safe:#0f766e; --safe-bg:#e6f4f2;
+  --warn:#b45309; --warn-bg:#fdf1e2;
+  --crit:#b3261e; --crit-bg:#fbe9e8;
+  --code-bg:#eef0f4;
+  --font-head:'Source Serif 4', Georgia, serif;
+  --font-body:'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+    --ink:#e8eaee; --ink-dim:#9aa3b1;
+    --accent:#e0913f; --accent-ink:#f3c98c;
+    --safe:#3fb8ab; --safe-bg:#132825;
+    --warn:#e0a447; --warn-bg:#2b2113;
+    --crit:#e46a62; --crit-bg:#2c1817;
+    --code-bg:#22262e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+  --ink:#e8eaee; --ink-dim:#9aa3b1;
+  --accent:#e0913f; --accent-ink:#f3c98c;
+  --safe:#3fb8ab; --safe-bg:#132825;
+  --warn:#e0a447; --warn-bg:#2b2113;
+  --crit:#e46a62; --crit-bg:#2c1817;
+  --code-bg:#22262e;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);line-height:1.6;padding-inline:16px}
+.page{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;padding-block:32px 96px}
+@media (max-width:880px){.page{grid-template-columns:1fr}}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;font-size:13px;max-height:calc(100vh - 48px);overflow-y:auto}
+@media (max-width:880px){nav.toc{position:static;max-height:none;border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface)}}
+nav.toc .toc-title{font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);font-size:11px;margin-bottom:10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{counter-increment:toc;margin-bottom:6px}
+nav.toc a{color:var(--ink-dim);text-decoration:none;display:block}
+nav.toc a:hover{color:var(--accent)}
+nav.toc a::before{content:counter(toc) ". ";font-family:var(--font-mono);color:var(--accent-ink);opacity:.8}
+main{min-width:0}
+header.hero{margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+header.hero .kicker{font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)}
+h1{font-family:var(--font-head);font-size:clamp(28px,4vw,42px);line-height:1.1;margin:8px 0 12px;text-wrap:balance}
+header.hero p.lead{color:var(--ink-dim);max-width:62ch;font-size:16px}
+.priority-bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;font-family:var(--font-mono);font-size:12px}
+.priority-bar span{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px}
+.priority-bar span b{color:var(--accent-ink)}
+section{margin-bottom:44px;scroll-margin-top:20px}
+h2{font-family:var(--font-head);font-size:23px;margin:0 0 6px;display:flex;align-items:baseline;gap:10px}
+h2 .num{font-family:var(--font-mono);color:var(--accent-ink);font-size:15px}
+h3{font-family:var(--font-body);font-weight:600;font-size:16px;margin:22px 0 8px}
+p{max-width:74ch}
+.note{color:var(--ink-dim);font-size:14px;max-width:70ch;margin-top:-2px;margin-bottom:16px}
+code, .mono{font-family:var(--font-mono);font-size:.92em}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow-x:auto;font-family:var(--font-mono);font-size:13px;line-height:1.55}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--surface);font-family:var(--font-mono);font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-dim)}
+td.num, th.num{font-variant-numeric:tabular-nums;text-align:right}
+.table-wrap{overflow-x:auto}
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin:14px 0}
+.diagram figcaption{font-size:12px;color:var(--ink-dim);margin-top:10px;font-family:var(--font-mono)}
+.tier-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}
+.tier{border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface)}
+.tier h4{margin:0 0 6px;font-size:14px;font-family:var(--font-mono)}
+.tier p{font-size:13px;color:var(--ink-dim);margin:0}
+.badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.04em}
+.badge.safe{background:var(--safe-bg);color:var(--safe)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.crit{background:var(--crit-bg);color:var(--crit)}
+.risk{border:1px solid var(--border);border-left:4px solid var(--crit);border-radius:0 10px 10px 0;padding:12px 16px;margin-bottom:12px;background:var(--surface)}
+.risk h4{margin:0 0 4px;font-size:14px}
+.risk p{margin:4px 0 0;font-size:13.5px;color:var(--ink-dim)}
+.risk .fix{margin-top:8px;font-size:13.5px}
+.risk .fix b{color:var(--safe)}
+.phase{border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:var(--surface);display:grid;grid-template-columns:90px 1fr;gap:14px}
+@media (max-width:600px){.phase{grid-template-columns:1fr}}
+.phase .p-label{font-family:var(--font-mono);font-size:12px;color:var(--accent-ink)}
+.phase h4{margin:0 0 4px;font-size:15px}
+.phase p{margin:0;font-size:13.5px;color:var(--ink-dim)}
+.status-now{border:1px dashed var(--safe);background:var(--safe-bg);border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+.status-now b{color:var(--safe)}
+hr.rule{border:none;border-top:1px solid var(--border);margin:40px 0}
+footer{color:var(--ink-dim);font-size:12.5px;border-top:1px solid var(--border);padding-top:18px}
+</style>
+
+<div class="page">
+<nav class="toc">
+  <div class="toc-title">Vaani — Architecture</div>
+  <ol>
+    <li><a href="#arch">Production architecture</a></li>
+    <li><a href="#flow">Cache-first decision flow</a></li>
+    <li><a href="#schema">Database schema</a></li>
+    <li><a href="#api">API design</a></li>
+    <li><a href="#semantic">Semantic matching</a></li>
+    <li><a href="#langdetect">Language detection</a></li>
+    <li><a href="#offline">Offline architecture</a></li>
+    <li><a href="#cost">Cost optimization</a></li>
+    <li><a href="#security">Security architecture</a></li>
+    <li><a href="#dashboard">Admin dashboard</a></li>
+    <li><a href="#fallback">Failure &amp; fallback</a></li>
+    <li><a href="#stack">Technology stack</a></li>
+    <li><a href="#deploy">Deployment architecture</a></li>
+    <li><a href="#usage">API usage model</a></li>
+    <li><a href="#perf">Performance targets</a></li>
+    <li><a href="#phases">Phase-wise plan</a></li>
+    <li><a href="#risks">Weaknesses &amp; mitigations</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="kicker">Vaani — Mela Help-Desk Communication System</div>
+  <h1>Cache first, AI second: a knowledge-first architecture for high-volume help desks</h1>
+  <p class="lead">A pilgrim speaks in their own language. Vaani detects it, understands the request, and answers from a cached, authority-approved knowledge base whenever possible — reaching for paid STT/translate/TTS APIs only for what hasn't been asked before.</p>
+  <div class="priority-bar">
+    <span><b>1</b> Accuracy</span><span>→</span>
+    <span><b>2</b> Safety</span><span>→</span>
+    <span><b>3</b> Response speed</span><span>→</span>
+    <span><b>4</b> Cost efficiency</span><span>→</span>
+    <span><b>5</b> Simplicity</span><span>→</span>
+    <span><b>6</b> Scalability</span>
+  </div>
+</header>
+
+<section id="arch">
+  <h2><span class="num">01</span> Production architecture</h2>
+  <p class="note">Grounded in what's actually deployed today (single VPS, FastAPI, Docker, Sarvam AI, nginx+TLS) rather than a greenfield rewrite — this extends the running system in place.</p>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+    client["Android Client\n(VAD capture, WebSocket, playback)"]
+    gw["nginx :443\nTLS termination, vhost routing"]
+    api["Vaani API / WS Gateway\nFastAPI, sarvam_server.py"]
+    redis[("Redis\nhot FAQ cache, rate limits")]
+    pg[("PostgreSQL + pgvector\nFAQ, variants, translations,\naudio index, analytics")]
+    obj[("Object storage / disk\ncached TTS audio files")]
+    providers["Provider Abstraction Layer\nSTT · Translate · TTS · Embeddings"]
+    sarvam["Sarvam AI"]
+    fallback["Bhashini / Azure / Google\n(fallback providers)"]
+    dash["Admin Dashboard\ncost, cache-hit rate, counters"]
+
+    client -- "wss:// binary protocol" --> gw --> api
+    api -- "1 hot lookup" --> redis
+    api -- "2 semantic search" --> pg
+    api -- "3 fetch cached audio" --> obj
+    api -- "4 only on cache miss" --> providers
+    providers --> sarvam
+    providers -. fallback .-> fallback
+    api -- "log every request" --> pg
+    dash --> pg
+    dash --> redis
+    </pre>
+    <figcaption>Client → gateway → API stays as-is; Redis, Postgres+pgvector, object storage and the dashboard are additive services on the same VPS.</figcaption>
+  </div>
+  <div class="status-now"><b>Already live:</b> client, nginx, API gateway, Sarvam AI provider calls, and an in-memory single-language-pair FAQ cache (8 entries, keyword match). Everything else in this document is the extension plan.</div>
+</section>
+
+<section id="flow">
+  <h2><span class="num">02</span> End-to-end sequence &amp; cache-first decision flow</h2>
+  <div class="diagram">
+    <pre class="mermaid">
+sequenceDiagram
+    participant P as Pilgrim
+    participant C as Android Client
+    participant A as Vaani API
+    participant R as Redis
+    participant D as Postgres+pgvector
+    participant S as Sarvam AI
+
+    P->>C: speaks (any language)
+    C->>A: PCM audio over WebSocket
+    A->>S: STT (auto-detect)
+    S-->>A: transcript + detected language
+    A->>A: normalize text
+    A->>R: lookup normalized text / intent
+    alt hot cache hit (Level 1/2/3)
+        R-->>A: cached answer + audio ref
+        A-->>C: text + cached TTS audio
+    else miss, try semantic search
+        A->>D: embed + vector search (pgvector)
+        D-->>A: candidate intent + confidence
+        alt confidence >= 0.90
+            A->>D: fetch approved answer (this language)
+            alt translation + audio cached
+                D-->>A: cached translation + audio path
+            else
+                A->>S: translate once, TTS once
+                S-->>A: translation + audio
+                A->>D: store translation + audio (versioned)
+            end
+            A->>R: warm hot cache for this intent+lang
+            A-->>C: text + audio
+        else 0.75-0.90 confidence
+            A->>A: deterministic re-check (keywords, category, TTL)
+            A-->>C: answer with lower-confidence flag, or ask to repeat
+        else below 0.75
+            A->>S: full translate (operator-facing text)
+            S-->>A: translation
+            A-->>C: raw translation, routed to operator, not auto-cached
+        end
+    end
+    A->>D: log analytics row (cache_hit, confidence, cost avoided)
+    </pre>
+    <figcaption>Every request logs to analytics regardless of path — that log is what powers the cost/cache-hit dashboard in §10.</figcaption>
+  </div>
+</section>
+
+<section id="schema">
+  <h2><span class="num">03</span> Database schema</h2>
+  <p class="note">PostgreSQL with the <code>pgvector</code> extension. Adds a persistence layer under the existing in-process FAQ dict — same 8 entries migrate in as the first rows.</p>
+  <h3>faq_knowledge</h3>
+  <pre>id              uuid primary key
+intent_code     text unique          -- e.g. 'VISHNUPAD_DIRECTIONS'
+canonical_question  text
+canonical_answer    text
+category        text                 -- static | location | time | emergency
+keywords        text[]
+status          text                 -- draft | approved | retired
+version         int
+approved_by     text
+cache_policy    text                 -- aggressive | validate | ttl | no_cache
+valid_from      timestamptz
+valid_until     timestamptz null
+updated_at      timestamptz</pre>
+  <h3>question_variants</h3>
+  <pre>id              uuid primary key
+faq_id          uuid references faq_knowledge
+language        text
+question_text   text
+normalized_text text
+embedding       vector(1024)         -- pgvector; model in §5
+usage_count     int default 0
+created_at      timestamptz</pre>
+  <h3>translations</h3>
+  <pre>faq_id              uuid references faq_knowledge
+language            text
+translated_answer   text
+translation_status  text             -- machine | reviewed
+reviewed_by         text null
+version             int              -- bumped when canonical_answer changes
+primary key (faq_id, language, version)</pre>
+  <h3>audio_cache</h3>
+  <pre>faq_id          uuid references faq_knowledge
+language        text
+voice           text
+audio_location  text                 -- disk path or object-store key
+answer_version  int                  -- must match translations.version
+created_at      timestamptz
+primary key (faq_id, language, voice, answer_version)</pre>
+  <h3>conversation_analytics</h3>
+  <pre>id                  bigserial primary key
+timestamp           timestamptz
+counter_id          text
+detected_language   text
+intent_code         text null
+confidence          real null
+cache_hit           text             -- none | text | translation | audio
+translation_api_used boolean
+tts_api_used         boolean
+stt_ms               int
+response_ms          int
+estimated_cost_inr   numeric(10,4)
+escalated            boolean          -- routed to operator</pre>
+  <p class="note">No transcript audio or raw PCM is retained by default (see §8 security) — only derived fields needed for the dashboard and quality review.</p>
+</section>
+
+<section id="api">
+  <h2><span class="num">04</span> API design</h2>
+  <p class="note">The existing binary WebSocket protocol (<code>/ws/translate/&#123;src&#125;/&#123;tgt&#125;</code>, frame flags 0x00–0x03) is unchanged for backward compatibility. New fields ride inside the existing JSON text frames; new endpoints are added alongside for admin/ops.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Endpoint</th><th>Purpose</th></tr>
+    <tr><td class="mono">WS /ws/translate/&#123;src&#125;/&#123;tgt&#125;</td><td>Existing pipeline. JSON <code>transcript</code>/<code>translation</code> frames gain optional <code>intent</code>, <code>confidence</code>, <code>cache_hit</code> fields — additive, old clients ignore unknown fields.</td></tr>
+    <tr><td class="mono">POST /admin/faq</td><td>Create/update a FAQ entry (canonical question, answer, category, keywords). Triggers re-embedding + cache invalidation for that <code>faq_id</code>.</td></tr>
+    <tr><td class="mono">POST /admin/faq/&#123;id&#125;/approve</td><td>Marks a draft FAQ approved; only approved entries are eligible for auto-answer.</td></tr>
+    <tr><td class="mono">GET /admin/analytics/summary</td><td>Aggregates for the dashboard: cache-hit rate, API cost, cost avoided, per-counter/per-language breakdown.</td></tr>
+    <tr><td class="mono">GET /sync/bundle?since=&#123;version&#125;</td><td>Offline pre-cache bundle (top-N FAQs + translations + audio URLs) for device sync — see §7.</td></tr>
+    <tr><td class="mono">POST /devices/register</td><td>Issues a per-counter device token — see §8.</td></tr>
+  </table></div>
+</section>
+
+<section id="semantic">
+  <h2><span class="num">05</span> Semantic matching strategy</h2>
+  <p>Exact-string matching (what's live today) is replaced by a three-stage match, cheapest first:</p>
+  <div class="tier-grid">
+    <div class="tier"><h4>1 · Normalized exact</h4><p>Lowercase, strip filler words/punctuation, check against <code>question_variants.normalized_text</code>. Free, in Redis, sub-millisecond.</p></div>
+    <div class="tier"><h4>2 · Keyword/alias</h4><p>Today's approach (per-language keyword lists) as a fast pre-filter before vector search — cheap and catches the bulk of repeat phrasing.</p></div>
+    <div class="tier"><h4>3 · Vector search</h4><p>Multilingual sentence embedding (e.g. <code>intfloat/multilingual-e5-large</code> or Sarvam's own embedding endpoint once available) + pgvector cosine search across <code>question_variants.embedding</code>, filtered to <code>approved</code> FAQs only.</p></div>
+  </div>
+  <p>Confidence thresholds (tune with production data, not fixed permanently):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Confidence</th><th>Action</th></tr>
+    <tr><td class="num">≥ 0.90</td><td>Auto-answer from cache — no LLM/NMT call.</td></tr>
+    <tr><td class="num">0.75 – 0.90</td><td>Deterministic re-check (category TTL, keyword overlap) before answering; flagged as lower-confidence in analytics.</td></tr>
+    <tr><td class="num">&lt; 0.75</td><td>Fall through to full STT→NMT→TTS pipeline, or route to operator for <code>emergency</code>-category intents (see §11 risk table).</td></tr>
+  </table></div>
+  <p class="note">A successfully-matched new phrasing is stored as another <code>question_variants</code> row (learning question wording) — the <code>canonical_answer</code> itself is never auto-edited by usage patterns (§14 of the original brief).</p>
+</section>
+
+<section id="langdetect">
+  <h2><span class="num">06</span> Language detection strategy</h2>
+  <p>Sarvam STT's auto-detect (already in use, <code>language_code="unknown"</code>) remains the primary signal — no manual language picker. Detected language + confidence is logged per request. Below a confidence floor, Vaani asks the speaker to repeat rather than guessing (never silently answer in the wrong language). Code-mixed speech (Hinglish, Tamil+English) is handled by Sarvam's STT as-is; normalization in the matching layer (§5) strips common English loanwords before the keyword/embedding stage so mixed phrasing still matches Hindi/regional intents.</p>
+</section>
+
+<section id="offline">
+  <h2><span class="num">07</span> Offline / degraded-mode architecture</h2>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart LR
+    pre["Pre-mela sync\n(top 100-500 FAQs)"] --> device["On-device SQLite\ntext + audio files"]
+    device --> app["Vaani Android app"]
+    app -- "online" --> api["Vaani API"]
+    app -- "offline" --> device
+    app -- "connectivity restored" --> sync["Analytics sync\n(queued requests)"]
+    sync --> api
+    </pre>
+  </div>
+  <p>Before deployment, the top 100–500 expected questions (approved answers, translations, pre-generated audio for the mela's expected language mix) sync to the device via <code>/sync/bundle</code> into a local SQLite store. On connectivity loss, the app falls back to this local store for FAQ-category questions only — never for <code>location-sensitive</code>, <code>time-sensitive</code>, or <code>emergency</code> categories, which require live/authority-verified data. The UI clearly shows an "Offline mode" indicator. Queued analytics events sync once connectivity returns.</p>
+</section>
+
+<section id="cost">
+  <h2><span class="num">08</span> Cost-optimization architecture</h2>
+  <p>Three cache levels, each skipping progressively more paid API work:</p>
+  <div class="tier-grid">
+    <div class="tier"><h4>Level 1 — Text cache</h4><p>Reuse a previously-approved answer's text. No NMT call.</p></div>
+    <div class="tier"><h4>Level 2 — Translation cache</h4><p>Per (faq_id, language) translated answer, versioned. Re-translated only if the canonical answer changes.</p></div>
+    <div class="tier"><h4>Level 3 — Audio cache</h4><p>Per (faq_id, language, voice, version) synthesized PCM. No TTS call on repeat — this is the biggest saver, since TTS is billed per character every time otherwise.</p></div>
+  </div>
+  <p class="note">This is the same principle the currently-deployed FAQ layer already proved: a repeat question answered in 3ms with zero TTS call, versus ~5–6s and a real API charge on first synthesis. §14 has the numbers at scale.</p>
+</section>
+
+<section id="security">
+  <h2><span class="num">09</span> Security architecture</h2>
+  <ul>
+    <li>TLS everywhere (already live via Let's Encrypt) — no plaintext <code>ws://</code> in production.</li>
+    <li>Provider API keys (Sarvam etc.) live only in the backend's environment file — never shipped in the Android app (already true today).</li>
+    <li>Per-counter device tokens issued via <code>/devices/register</code>, required on connect; revocable without an app update.</li>
+    <li>Rate limiting and per-counter daily budgets enforced at the API layer (see §11) — one misbehaving device can't run up unlimited API spend.</li>
+    <li>Minimal retention: raw PCM audio and full transcripts are not persisted by default — only the derived analytics row (§3). If audio retention is needed for quality review, it's opt-in with a defined TTL.</li>
+    <li>Admin dashboard behind role-based auth; audit log for every FAQ edit/approval.</li>
+  </ul>
+</section>
+
+<section id="dashboard">
+  <h2><span class="num">10</span> Admin dashboard design</h2>
+  <p>A lightweight read-mostly dashboard (FastAPI + server-rendered page, or a small SPA) over <code>conversation_analytics</code> and Redis counters:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Panel</th><th>Source</th></tr>
+    <tr><td>Conversations (total / today / per counter)</td><td><code>conversation_analytics</code> grouped by <code>counter_id</code></td></tr>
+    <tr><td>Language distribution, top intents/questions</td><td>grouped by <code>detected_language</code>, <code>intent_code</code></td></tr>
+    <tr><td>Cache-hit rate, API calls avoided</td><td><code>cache_hit</code> counts vs. total</td></tr>
+    <tr><td>Estimated API spend vs. avoided spend</td><td><code>estimated_cost_inr</code> summed, compared against a hypothetical no-cache baseline</td></tr>
+    <tr><td>Avg response latency by stage</td><td><code>stt_ms</code>, <code>response_ms</code></td></tr>
+    <tr><td>Low-confidence / unknown / escalated queries</td><td><code>confidence &lt; 0.75</code> or <code>escalated = true</code> rows, for FAQ curation</td></tr>
+  </table></div>
+  <p class="note">This is the concrete artifact for the "why pay for Vaani over plain Google Translate" conversation with the Mela Authority — a counter-wise, cost-quantified operations view Google Translate has no equivalent of.</p>
+</section>
+
+<section id="fallback">
+  <h2><span class="num">11</span> Failure &amp; fallback strategy</h2>
+  <ul>
+    <li><b>Provider abstraction</b> — <code>SpeechToTextProvider</code>, <code>TranslationProvider</code>, <code>TextToSpeechProvider</code>, <code>EmbeddingProvider</code> interfaces so Sarvam can be swapped/supplemented with Bhashini/Azure/Google via config, not a rewrite.</li>
+    <li><b>Timeouts</b> — already 30s on the Sarvam HTTP client; add per-stage timeouts (STT/translate/TTS individually) so one slow stage doesn't stall the whole utterance.</li>
+    <li><b>Circuit breaker</b> — trip after N consecutive provider failures, fail fast to a fallback provider or a "please ask the operator directly" message rather than hanging every subsequent request.</li>
+    <li><b>Rate limiting + daily budget</b> — per-counter request caps and a global daily API-spend ceiling with alerting, so a stuck/looping device can't generate unbounded cost.</li>
+    <li><b>Duplicate-request suppression</b> — identical in-flight requests from the same counter collapse to one upstream call.</li>
+  </ul>
+</section>
+
+<section id="stack">
+  <h2><span class="num">12</span> Recommended technology stack</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+    <tr><td>API</td><td>FastAPI (existing)</td><td>Already the deployed stack — no rewrite.</td></tr>
+    <tr><td>Relational + vector</td><td>PostgreSQL 16 + pgvector</td><td>One database for structured FAQ/analytics data and embedding search — avoids running a separate vector DB.</td></tr>
+    <tr><td>Hot cache</td><td>Redis</td><td>Millisecond lookups for the hottest intents; also backs rate limiting/budgets.</td></tr>
+    <tr><td>Audio storage</td><td>Local disk + nginx static serving (object storage later if multi-VPS)</td><td>Single-VPS deployment doesn't need S3/MinIO yet — keep it simple per §12 of the brief.</td></tr>
+    <tr><td>Containers</td><td>Docker Compose</td><td>Adds postgres/redis services alongside the existing <code>vaani-backend</code> container on the same VPS.</td></tr>
+  </table></div>
+</section>
+
+<section id="deploy">
+  <h2><span class="num">13</span> Deployment architecture</h2>
+  <p>Extends the current single-VPS deployment (187.127.167.93) rather than introducing new infrastructure: <code>vaani-backend</code>, a new <code>vaani-postgres</code>, and a new <code>vaani-redis</code> container on the same Docker host, all bound to <code>127.0.0.1</code> and reached only through the existing nginx vhost — consistent with how this VPS already isolates other tenants (partvik.com, evolution-api) on their own ports.</p>
+</section>
+
+<section id="usage">
+  <h2><span class="num">14</span> Estimated API usage model</h2>
+  <p class="note">Illustrative only, using Sarvam's published pay-as-you-go rates (STT ₹30/hr, Translate ₹0.005/char, TTS ₹3/1,000 chars) and a hypothetical 50,000-conversation mela day, ~75 characters per exchange. Actual cache-hit rate must be measured against real question distribution once deployed — do not treat this as a guarantee.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Scenario</th><th class="num">Conversations</th><th class="num">Est. cost/day</th></tr>
+    <tr><td>No caching (every request hits STT+NMT+TTS)</td><td class="num">50,000</td><td class="num">≈ ₹33,400</td></tr>
+    <tr><td>Cache-first, ~70% FAQ hit rate after warm-up</td><td class="num">50,000</td><td class="num">≈ ₹12,300</td></tr>
+    <tr><td>Estimated savings</td><td></td><td class="num">≈ 63%</td></tr>
+  </table></div>
+</section>
+
+<section id="perf">
+  <h2><span class="num">15</span> Performance targets &amp; benchmarking plan</h2>
+  <p>Measure each stage independently (language detection, STT, cache/intent lookup, translation, TTS, total) rather than a single end-to-end number. The Node/WebSocket timing harness already used to diagnose the audio-playback issue on this project is the starting point for a repeatable benchmark script — extend it to record per-stage timestamps from the JSON event stream and run it against a representative question set before quoting any latency figure publicly.</p>
+</section>
+
+<section id="phases">
+  <h2><span class="num">16</span> Phase-wise implementation plan</h2>
+  <div class="phase"><div class="p-label">Phase 0<br><span class="badge safe">done</span></div><div><h4>Core pipeline + in-memory FAQ</h4><p>STT→NMT→TTS over Sarvam AI, deployed on the VPS with TLS; 8-entry keyword-matched FAQ cache with in-memory audio caching. Live today.</p></div></div>
+  <div class="phase"><div class="p-label">Phase 1</div><div><h4>Persistence</h4><p>Migrate FAQ entries into Postgres (<code>faq_knowledge</code>, <code>translations</code>, <code>audio_cache</code> tables); audio cache survives container restarts. Add <code>conversation_analytics</code> logging on every request.</p></div></div>
+  <div class="phase"><div class="p-label">Phase 2</div><div><h4>Hot cache + confidence tiers</h4><p>Add Redis in front of Postgres for the hottest intents; implement the 0.90/0.75 confidence-tier logic (still keyword-based matching at this stage).</p></div></div>
+  <div class="phase"><div class="p-label">Phase 3</div><div><h4>Semantic matching</h4><p>Add pgvector + multilingual embeddings; <code>question_variants</code> populated from real logged transcripts; keyword matching becomes the pre-filter, not the only signal.</p></div></div>
+  <div class="phase"><div class="p-label">Phase 4</div><div><h4>Admin dashboard</h4><p>Build the metrics dashboard from accumulated analytics data — this is when real cost-savings numbers exist to show the Mela Authority.</p></div></div>
+  <div class="phase"><div class="p-label">Phase 5</div><div><h4>Offline bundle + operator confirmation</h4><p><code>/sync/bundle</code> endpoint, on-device SQLite fallback, operator-facing confirm-before-speak UI for low-confidence/sensitive intents.</p></div></div>
+  <div class="phase"><div class="p-label">Phase 6</div><div><h4>Hardening</h4><p>Device tokens, per-counter rate limits/budgets, circuit breakers, audit logging, provider fallback wiring.</p></div></div>
+</section>
+
+<section id="risks">
+  <h2><span class="num">17</span> Weaknesses &amp; mitigations</h2>
+  <div class="risk"><h4>Incorrect semantic match <span class="badge warn">quality</span></h4><p>A confident-looking embedding match can still be the wrong intent, especially across dialect/code-mixed phrasing.</p><p class="fix"><b>Mitigation:</b> tiered confidence thresholds (§5) with a deterministic re-check in the 0.75–0.90 band, and never auto-answer <code>emergency</code>-category intents from semantic match alone — always route those to an operator.</p></div>
+  <div class="risk"><h4>Incorrect language detection</h4><p>Background noise or short utterances can cause STT auto-detect to pick the wrong language, producing a fluent-sounding but wrong-language answer.</p><p class="fix"><b>Mitigation:</b> log detection confidence; below a floor, ask the speaker to repeat rather than answer — never silently guess.</p></div>
+  <div class="risk"><h4>Stale cached answers</h4><p>An approved answer changes (new gate location, revised timings) but cached translations/audio still reflect the old version.</p><p class="fix"><b>Mitigation:</b> <code>category</code> + <code>cache_policy</code> + <code>valid_until</code> fields (§3); bumping <code>faq_knowledge.version</code> invalidates all dependent <code>translations</code>/<code>audio_cache</code> rows for that FAQ automatically.</p></div>
+  <div class="risk"><h4>Translation errors compounding through caching</h4><p>A bad machine translation, once cached, gets served to every future pilgrim in that language until caught.</p><p class="fix"><b>Mitigation:</b> <code>translation_status</code> (machine vs. reviewed) — high-traffic FAQ answers should graduate to authority-reviewed status; dashboard surfaces per-FAQ usage volume to prioritize review.</p></div>
+  <div class="risk"><h4>Single external API dependency</h4><p>Sarvam AI outage or rate-limiting stalls every uncached request.</p><p class="fix"><b>Mitigation:</b> provider abstraction (§11) makes Bhashini/Azure/Google a config change, not a rewrite; circuit breaker fails fast instead of hanging.</p></div>
+  <div class="risk"><h4>Network failure at the counter</h4><p>Mela connectivity is inherently unreliable under crowd load.</p><p class="fix"><b>Mitigation:</b> offline bundle (§7) for FAQ-category questions only; clear "offline mode" UI state; queued analytics sync on reconnect.</p></div>
+  <div class="risk"><h4>Cost explosion from a misbehaving device</h4><p>A stuck client retry-looping, or an intentionally abusive device, could otherwise run up unbounded API spend.</p><p class="fix"><b>Mitigation:</b> per-counter rate limits and a global daily budget ceiling with alerting (§11); duplicate in-flight request suppression.</p></div>
+  <div class="risk"><h4>Emergency-query mishandling <span class="badge crit">safety-critical</span></h4><p>Loose semantic matching must never generate an unverified or generic answer to a missing-child, medical, or crowd-safety query.</p><p class="fix"><b>Mitigation:</b> <code>emergency</code> category is exempt from auto-answer entirely regardless of confidence score — always transcribed, translated, and routed straight to the operator with a visible escalation flag.</p></div>
+</section>
+
+<hr class="rule">
+<footer>
+  Vaani — internal architecture reference. Grounded in the deployed <code>sarvam_server.py</code> backend (VPS 187.127.167.93, vaani.smartsafetytag.com) and the Android client in this repository. Figures in §14 are illustrative estimates, not commitments — see §15 for the benchmarking plan needed before quoting real numbers.
+</footer>
+</main>
+</div>

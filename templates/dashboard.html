@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — Dashboard</title>
+{% include "_style.html" %}
+</head><body>
+  <div class="topbar">
+    <h1 style="margin:0;">Vaani Admin — {{ pack_id }}</h1>
+    <span>{{ username }} · <a href="/admin/logout">Log out</a></span>
+  </div>
+
+  {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0;">Usage summary</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="num">{{ summary.total }}</div><div class="label">Total conversations</div></div>
+      <div class="stat"><div class="num">{{ summary.today }}</div><div class="label">Today</div></div>
+      <div class="stat"><div class="num">{{ summary.cache_hit_rate }}%</div><div class="label">Cache hit rate</div></div>
+      <div class="stat"><div class="num">{{ summary.escalated }}</div><div class="label">Escalated (emergency)</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="margin:0;">FAQ entries</h2>
+      <a href="/admin/faq/new" class="btn">+ New FAQ</a>
+    </div>
+    <table>
+      <tr><th>ID</th><th>Category</th><th>Status</th><th>Languages</th><th>Updated</th></tr>
+      {% for faq in faqs %}
+      <tr>
+        <td><a href="/admin/faq/{{ faq.faq_id }}">{{ faq.faq_id }}</a></td>
+        <td><span class="badge {{ faq.category }}">{{ faq.category }}</span></td>
+        <td><span class="badge {{ faq.status }}">{{ faq.status }}</span></td>
+        <td>{{ faq.languages | join(", ") }}</td>
+        <td>{{ faq.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</body></html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — {{ faq.faq_id }}</title>
+{% include "_style.html" %}
+</head><body>
+  <h1><a href="/admin" style="color:#9096a3;text-decoration:none;">← Admin</a> / {{ faq.faq_id }}</h1>
+  {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+  <div class="card">
+    <form method="post" action="/admin/faq/{{ faq.faq_id }}">
+      <label>Category
+        <select name="category">
+          {% for c in ["static", "location", "time", "emergency"] %}
+          <option value="{{ c }}" {% if faq.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Status
+        <select name="status">
+          {% for s in ["approved", "draft", "retired"] %}
+          <option value="{{ s }}" {% if faq.status == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <h2 style="margin-top:28px;">Keywords &amp; answer per language</h2>
+      <p style="color:#9096a3;font-size:13px;">Leave a language's fields blank to skip it. Keywords are comma-separated; if a pilgrim's speech contains any of them (in that language), this FAQ's answer is spoken instantly.</p>
+
+      {% for code, name in languages.items() %}
+      <div style="border-top:1px solid #22262f;padding-top:14px;margin-top:14px;">
+        <strong>{{ name }} ({{ code }})</strong>
+        <label>Keywords
+          <input name="keywords_{{ code }}" value="{{ faq.keywords.get(code, []) | join(', ') }}">
+        </label>
+        <label>Answer
+          <textarea name="answer_{{ code }}">{{ faq.answers.get(code, {}).get('text', '') }}</textarea>
+        </label>
+      </div>
+      {% endfor %}
+
+      <button type="submit">Save</button>
+    </form>
+  </div>
+</body></html>

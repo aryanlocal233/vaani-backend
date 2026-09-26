@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — New FAQ</title>
+{% include "_style.html" %}
+</head><body>
+  <h1><a href="/admin" style="color:#9096a3;text-decoration:none;">← Admin</a> / New FAQ</h1>
+  <div class="card">
+    <form method="post" action="/admin/faq/new">
+      <label>FAQ ID (slug, e.g. "shuttle_timing")
+        <input name="faq_id" required autofocus>
+      </label>
+      <label>Category
+        <select name="category">
+          <option value="static">static</option>
+          <option value="location">location</option>
+          <option value="time">time</option>
+          <option value="emergency">emergency</option>
+        </select>
+      </label>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <button type="submit">Create &amp; edit</button>
+    </form>
+  </div>
+</body></html>

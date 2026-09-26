@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vaani — Real-time Voice Translation</title>
+<meta name="description" content="Real-time, hands-free voice-to-voice translation for Indian regional languages.">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg-card: #12151c;
+    --text: #e8eaef;
+    --text-dim: #9096a3;
+    --accent: #6ee7b7;
+    --accent-2: #60a5fa;
+    --border: #22262f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 64px 20px 80px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 999px;
+    margin-bottom: 28px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .dot.off { background: #f87171; box-shadow: 0 0 8px #f87171; }
+  h1 {
+    font-size: clamp(36px, 6vw, 56px);
+    line-height: 1.05;
+    margin: 0 0 18px;
+    letter-spacing: -0.02em;
+  }
+  h1 span {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .lead {
+    font-size: 19px;
+    color: var(--text-dim);
+    max-width: 620px;
+    margin: 0 0 40px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 48px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .card h3 {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .card p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .langs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 48px;
+  }
+  .lang {
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .endpoint {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .endpoint h3 {
+    margin: 0 0 10px;
+    font-size: 15px;
+  }
+  code {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: var(--accent);
+    background: #0b0d12;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+  }
+  footer {
+    margin-top: 56px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+  }
+  a { color: var(--accent-2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="badge"><span class="dot" id="statusDot"></span><span id="statusText">Checking service status…</span></div>
+
+    <h1>Real-time voice translation,<br><span>face to face.</span></h1>
+    <p class="lead">
+      Vaani listens for speech, detects when you start and stop talking,
+      and streams the translated audio back — no push-to-talk, no typing.
+      Built for conversations between speakers of different Indian regional languages.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Hands-free</h3>
+        <p>Voice activity detection starts and stops translation automatically as each person speaks.</p>
+      </div>
+      <div class="card">
+        <h3>Barge-in aware</h3>
+        <p>Speaking over playback cancels the current response instantly and starts listening again.</p>
+      </div>
+      <div class="card">
+        <h3>Low latency</h3>
+        <p>Audio streams over a binary WebSocket protocol in 200ms chunks for near real-time turnaround.</p>
+      </div>
+    </div>
+
+    <div class="langs" id="langList">
+      <span class="lang">Hindi</span><span class="lang">Tamil</span><span class="lang">Telugu</span>
+      <span class="lang">Bengali</span><span class="lang">Kannada</span><span class="lang">Marathi</span>
+      <span class="lang">Gujarati</span><span class="lang">Punjabi</span><span class="lang">Malayalam</span>
+      <span class="lang">Odia</span><span class="lang">Assamese</span><span class="lang">English</span>
+    </div>
+
+    <div class="endpoint">
+      <h3>WebSocket endpoint</h3>
+      <code>wss://vaani.smartsafetytag.com/ws/translate/{src_lang}/{tgt_lang}</code>
+    </div>
+
+    <footer>
+      Vaani backend — FastAPI + Sarvam AI STT/NMT/TTS pipeline.
+    </footer>
+  </div>
+
+  <script>
+    fetch('/docs', { method: 'GET' })
+      .then(function (res) {
+        var dot = document.getElementById('statusDot');
+        var text = document.getElementById('statusText');
+        if (res.ok) {
+          text.textContent = 'Service online';
+        } else {
+          dot.classList.add('off');
+          text.textContent = 'Service unreachable';
+        }
+      })
+      .catch(function () {
+        document.getElementById('statusDot').classList.add('off');
+        document.getElementById('statusText').textContent = 'Service unreachable';
+      });
+  </script>
+</body>
+</html>
