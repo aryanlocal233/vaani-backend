@@ -86,3 +86,33 @@ CREATE TABLE IF NOT EXISTS conversation_analytics (
     tts_cost_inr            NUMERIC(10,4) NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_analytics_pack_ts ON conversation_analytics (pack_id, ts);
+
+-- General (non-FAQ) response cache: catches repeated conversational phrases -- especially the
+-- operator's own recurring lines ("please wait", "next", "come this way") -- that aren't
+-- FAQ-shaped but are still exact repeats. Exact-hash match only (not fuzzy, unlike FAQ matching)
+-- -- a false match on arbitrary freeform conversation has no admin-curated safety net the way a
+-- wrong FAQ match would, so this deliberately only fires on an exact normalized-text repeat.
+CREATE TABLE IF NOT EXISTS translation_cache (
+    pack_id         TEXT NOT NULL,
+    src_lang        TEXT NOT NULL,
+    tgt_lang        TEXT NOT NULL,
+    text_hash       TEXT NOT NULL,      -- sha256 of the normalized source text
+    source_text     TEXT NOT NULL,      -- kept for admin visibility/debugging only
+    translated_text TEXT NOT NULL,
+    hit_count       INT NOT NULL DEFAULT 1,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (pack_id, src_lang, tgt_lang, text_hash)
+);
+
+CREATE TABLE IF NOT EXISTS tts_audio_cache (
+    pack_id     TEXT NOT NULL,
+    lang        TEXT NOT NULL,
+    voice       TEXT NOT NULL,
+    text_hash   TEXT NOT NULL,          -- sha256 of the normalized text that was synthesized
+    audio_path  TEXT NOT NULL,
+    hit_count   INT NOT NULL DEFAULT 1,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (pack_id, lang, voice, text_hash)
+);

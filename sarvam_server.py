@@ -13,6 +13,7 @@ from __future__ import annotations
 import array
 import asyncio
 import base64
+import hashlib
 import logging
 import os
 import re
@@ -160,6 +161,23 @@ async def get_faq_audio(entry: dict, lang: str, text: str) -> bytes:
 
 
 WAV_HEADER_SIZE = 44
+
+_CACHE_NORMALIZE_RE = re.compile(r"\s+")
+
+
+def normalize_for_cache(text: str) -> str:
+    """Light normalization for the general translation/TTS cache -- collapses whitespace and
+    trailing punctuation so trivially-different renderings of the same utterance ("please wait."
+    vs "please wait") still hit. Deliberately not the fuzzy token-matching FAQ uses: this cache
+    has no admin-curated answer to fall back on, so it only ever fires on a real repeat, not a
+    guess."""
+    normalized = _CACHE_NORMALIZE_RE.sub(" ", text.strip().lower())
+    return normalized.rstrip(".!?।॥ ")
+
+
+def hash_for_cache(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 # Splits on Latin sentence punctuation and the Devanagari-family danda/double-danda (used by
 # several of our supported scripts -- Hindi, Marathi, Bengali, Odia, Assamese formal writing).
@@ -558,8 +576,12 @@ async def run_sarvam_pipeline(
     if not transcript.strip():
         logger.warning("STT returned empty transcript; sending no_speech and skipping NMT/TTS")
         await websocket.send_json({"type": "no_speech", "message": "No speech detected"})
+        # Tagged distinctly from a genuine cache miss ("none") so the cost dashboard can show
+        # how much STT spend is going to VAD false-triggers (background noise, coughs) rather
+        # than real questions -- that's the actual lever for deciding whether to retune VAD
+        # sensitivity, and it was invisible before this tag existed.
         await db.log_analytics(
-            EVENT_PACK, counter_id, detected_bcp47, None, "none", False, False,
+            EVENT_PACK, counter_id, detected_bcp47, None, "no_speech", False, False,
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
             audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
         )
@@ -629,35 +651,61 @@ async def run_sarvam_pipeline(
         )
         return visitor_lang
 
-    try:
-        translated_text = await sarvam_translate(transcript, actual_src, actual_tgt)
-    except SarvamAPIError as exc:
-        logger.error("Translation failed: %s", exc)
-        await websocket.send_json({"type": "error", "message": f"Translation failed: {exc}"})
-        await db.log_analytics(
-            EVENT_PACK, counter_id, actual_src, None, "none", False, False,
-            stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
-            audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
-        )
-        return visitor_lang
+    normalized_transcript = normalize_for_cache(transcript)
+    transcript_hash = hash_for_cache(normalized_transcript)
+    translate_cost_val = 0.0
+    translation_api_used = False
+    cache_hit_kind = "none"
 
-    if not translated_text.strip():
-        logger.warning("NMT returned empty translation; aborting pipeline")
-        await websocket.send_json({"type": "error", "message": "Translation returned empty result"})
-        # Translate did succeed (just returned empty) -- that call is still billable.
-        await db.log_analytics(
-            EVENT_PACK, counter_id, actual_src, None, "none", True, False,
-            stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
-            audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
-            translate_cost_inr=pricing.translate_cost(len(transcript)),
-        )
-        return visitor_lang
+    if actual_src == actual_tgt:
+        # Both sides are speaking the same language (e.g. two Hindi speakers at the counter) --
+        # translating text to itself is pure waste, and NMT can even subtly reword it, which is
+        # worse than just passing it through untouched. Zero translate cost, real bug fix.
+        logger.info("Source and target language match (%s) -- bypassing translation", actual_src)
+        translated_text = transcript
+    else:
+        cached_translation = await db.get_translation_cache(EVENT_PACK, actual_src, actual_tgt, transcript_hash)
+        if cached_translation is not None:
+            logger.info("Translation cache hit for %r (%s->%s)", transcript, actual_src, actual_tgt)
+            translated_text = cached_translation
+            cache_hit_kind = "text_cache"
+        else:
+            try:
+                translated_text = await sarvam_translate(transcript, actual_src, actual_tgt)
+            except SarvamAPIError as exc:
+                logger.error("Translation failed: %s", exc)
+                await websocket.send_json({"type": "error", "message": f"Translation failed: {exc}"})
+                await db.log_analytics(
+                    EVENT_PACK, counter_id, actual_src, None, "none", False, False,
+                    stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
+                    audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+                )
+                return visitor_lang
 
-    unknown_question_note = (
-        "No FAQ match -- fell through to live translation. If this question recurs, it's a "
-        "candidate for a new approved FAQ entry (see the 'frequently unanswered' report)."
-    )
-    logger.info("%s | transcript=%r", unknown_question_note, transcript)
+            if not translated_text.strip():
+                logger.warning("NMT returned empty translation; aborting pipeline")
+                await websocket.send_json({"type": "error", "message": "Translation returned empty result"})
+                # Translate did succeed (just returned empty) -- that call is still billable.
+                await db.log_analytics(
+                    EVENT_PACK, counter_id, actual_src, None, "none", True, False,
+                    stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
+                    audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+                    translate_cost_inr=pricing.translate_cost(len(transcript)),
+                )
+                return visitor_lang
+
+            translation_api_used = True
+            translate_cost_val = pricing.translate_cost(len(transcript))
+            await db.save_translation_cache(
+                EVENT_PACK, actual_src, actual_tgt, transcript_hash, transcript, translated_text
+            )
+
+    if cache_hit_kind == "none" and translation_api_used:
+        unknown_question_note = (
+            "No FAQ match -- fell through to live translation. If this question recurs, it's a "
+            "candidate for a new approved FAQ entry (see the 'frequently unanswered' report)."
+        )
+        logger.info("%s | transcript=%r", unknown_question_note, transcript)
 
     await websocket.send_json({"type": "translation", "text": translated_text, "lang": actual_tgt})
 
@@ -669,29 +717,46 @@ async def run_sarvam_pipeline(
     # instead of the whole response's. For the common single-sentence reply this is a no-op:
     # one sentence in, one TTS call, identical to before.
     sentences = split_sentences(translated_text)
-    tts_tasks = [asyncio.create_task(sarvam_tts(sentence, actual_tgt)) for sentence in sentences]
+    voice = faq_voice_for(actual_tgt)
+    sentence_hashes = [hash_for_cache(normalize_for_cache(s)) for s in sentences]
+
+    # General TTS cache: check every sentence *before* launching any Sarvam call, so a cached
+    # sentence never pays for or waits on synthesis -- only genuine cache misses get a task.
+    cached_pcms: dict[int, bytes] = {}
+    tts_tasks: dict[int, asyncio.Task] = {}
+    for i, (sentence, text_hash) in enumerate(zip(sentences, sentence_hashes)):
+        cached_audio = await db.get_general_tts_audio(EVENT_PACK, actual_tgt, voice, text_hash)
+        if cached_audio is not None:
+            cached_pcms[i] = cached_audio
+        else:
+            tts_tasks[i] = asyncio.create_task(sarvam_tts(sentence, actual_tgt))
 
     chunk_count = 0
     total_bytes = 0
-    synthesized_chars = 0  # only sentences that actually succeeded are billable
+    synthesized_chars = 0  # only freshly-synthesized (billable) sentences count here
+    tts_api_used = bool(tts_tasks)
     try:
-        for sentence, task in zip(sentences, tts_tasks):
-            try:
-                pcm_audio = await task
-            except SarvamAPIError as exc:
-                logger.error("TTS failed for sentence %r: %s", sentence, exc)
-                await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
-                await db.log_analytics(
-                    EVENT_PACK, counter_id, actual_src, None, "none", True, synthesized_chars > 0,
-                    stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
-                    audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
-                    translate_cost_inr=pricing.translate_cost(len(transcript)),
-                    tts_cost_inr=pricing.tts_cost(synthesized_chars),
-                )
-                return visitor_lang
+        for i, sentence in enumerate(sentences):
+            if i in cached_pcms:
+                pcm_audio = cached_pcms[i]
+            else:
+                try:
+                    pcm_audio = await tts_tasks[i]
+                except SarvamAPIError as exc:
+                    logger.error("TTS failed for sentence %r: %s", sentence, exc)
+                    await websocket.send_json({"type": "error", "message": f"Speech synthesis failed: {exc}"})
+                    await db.log_analytics(
+                        EVENT_PACK, counter_id, actual_src, None, cache_hit_kind, translation_api_used, synthesized_chars > 0,
+                        stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
+                        audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
+                        translate_cost_inr=translate_cost_val,
+                        tts_cost_inr=pricing.tts_cost(synthesized_chars),
+                    )
+                    return visitor_lang
 
-            pcm_audio = apply_edge_fade(pcm_audio)
-            synthesized_chars += len(sentence)
+                pcm_audio = apply_edge_fade(pcm_audio)
+                synthesized_chars += len(sentence)
+                await db.save_general_tts_audio(EVENT_PACK, actual_tgt, voice, sentence_hashes[i], pcm_audio)
 
             for offset in range(0, len(pcm_audio), TTS_CHUNK_SIZE):
                 chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
@@ -699,16 +764,19 @@ async def run_sarvam_pipeline(
                 chunk_count += 1
             total_bytes += len(pcm_audio)
     finally:
-        for task in tts_tasks:
+        for task in tts_tasks.values():
             if not task.done():
                 task.cancel()
 
-    logger.info("Pipeline complete: sent %d audio chunks (%d bytes, %d sentence(s))", chunk_count, total_bytes, len(sentences))
+    logger.info(
+        "Pipeline complete: sent %d audio chunks (%d bytes, %d sentence(s), %d from cache)",
+        chunk_count, total_bytes, len(sentences), len(cached_pcms),
+    )
     await db.log_analytics(
-        EVENT_PACK, counter_id, actual_src, None, "none", True, True,
+        EVENT_PACK, counter_id, actual_src, None, cache_hit_kind, translation_api_used, tts_api_used,
         stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
         audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
-        translate_cost_inr=pricing.translate_cost(len(transcript)),
+        translate_cost_inr=translate_cost_val,
         tts_cost_inr=pricing.tts_cost(synthesized_chars),
     )
     return visitor_lang

@@ -123,7 +123,8 @@ async def get_analytics_summary(pack_id: str) -> dict:
         row = await conn.fetchrow(
             "SELECT COUNT(*) AS total, "
             "COUNT(*) FILTER (WHERE ts::date = now()::date) AS today, "
-            "COUNT(*) FILTER (WHERE cache_hit = 'faq') AS cache_hits, "
+            "COUNT(*) FILTER (WHERE cache_hit IN ('faq', 'text_cache')) AS cache_hits, "
+            "COUNT(*) FILTER (WHERE cache_hit = 'no_speech') AS noise_triggers, "
             "COUNT(*) FILTER (WHERE escalated) AS escalated "
             "FROM conversation_analytics WHERE pack_id = $1",
             pack_id,
@@ -135,6 +136,7 @@ async def get_analytics_summary(pack_id: str) -> dict:
         "today": row["today"] or 0,
         "cache_hits": cache_hits,
         "cache_hit_rate": round(cache_hits / total * 100, 1) if total else 0.0,
+        "noise_triggers": row["noise_triggers"] or 0,
         "escalated": row["escalated"] or 0,
     }
 
@@ -142,17 +144,19 @@ async def get_analytics_summary(pack_id: str) -> dict:
 async def get_cost_summary(pack_id: str) -> dict:
     """Real cost, summed from what was actually logged per request (pricing.py rates applied
     at logging time) -- not recomputed here. cost_avoided_today is the one estimated figure:
-    today's cache hits multiplied by the average translate+TTS cost of today's *non*-cache-hit
-    requests, i.e. "what today's repeat questions would have cost without the FAQ cache,
-    based on what your actual uncached requests cost today" -- grounded in real observed
-    averages, not an assumed rate."""
+    today's cache hits (FAQ + the general repeated-phrase cache) multiplied by the average
+    translate+TTS cost of today's genuine cache-miss requests, i.e. "what today's repeats would
+    have cost without caching, based on what your actual uncached requests cost today" --
+    grounded in real observed averages, not an assumed rate."""
     async with _pool.acquire() as conn:
         today_row = await conn.fetchrow(
             "SELECT "
             "COALESCE(SUM(stt_cost_inr),0) AS stt, "
             "COALESCE(SUM(translate_cost_inr),0) AS translate, "
             "COALESCE(SUM(tts_cost_inr),0) AS tts, "
-            "COUNT(*) FILTER (WHERE cache_hit='faq') AS cache_hits "
+            "COUNT(*) FILTER (WHERE cache_hit IN ('faq', 'text_cache')) AS cache_hits, "
+            "COUNT(*) FILTER (WHERE cache_hit = 'no_speech') AS noise_triggers, "
+            "COALESCE(SUM(stt_cost_inr) FILTER (WHERE cache_hit = 'no_speech'), 0) AS noise_cost "
             "FROM conversation_analytics WHERE pack_id=$1 AND ts::date = now()::date",
             pack_id,
         )
@@ -164,7 +168,7 @@ async def get_cost_summary(pack_id: str) -> dict:
         avg_row = await conn.fetchrow(
             "SELECT AVG(translate_cost_inr + tts_cost_inr) AS avg_full_cost "
             "FROM conversation_analytics "
-            "WHERE pack_id=$1 AND ts::date = now()::date AND cache_hit != 'faq' AND translation_api_used",
+            "WHERE pack_id=$1 AND ts::date = now()::date AND cache_hit = 'none' AND translation_api_used",
             pack_id,
         )
 
@@ -180,6 +184,8 @@ async def get_cost_summary(pack_id: str) -> dict:
         "all_time_total": float(total_row["total"]),
         "cache_hits_today": cache_hits_today,
         "cost_avoided_today": cache_hits_today * avg_full_cost,
+        "noise_triggers_today": today_row["noise_triggers"] or 0,
+        "noise_cost_today": float(today_row["noise_cost"]),
     }
 
 
@@ -205,6 +211,71 @@ async def get_hourly_usage(pack_id: str, day: datetime.date) -> list[dict]:
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# General (non-FAQ) translation + TTS response cache
+# ---------------------------------------------------------------------------
+
+async def get_translation_cache(pack_id: str, src_lang: str, tgt_lang: str, text_hash: str) -> str | None:
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT translated_text FROM translation_cache "
+            "WHERE pack_id=$1 AND src_lang=$2 AND tgt_lang=$3 AND text_hash=$4",
+            pack_id, src_lang, tgt_lang, text_hash,
+        )
+        if row is not None:
+            await conn.execute(
+                "UPDATE translation_cache SET hit_count = hit_count + 1, last_used_at = now() "
+                "WHERE pack_id=$1 AND src_lang=$2 AND tgt_lang=$3 AND text_hash=$4",
+                pack_id, src_lang, tgt_lang, text_hash,
+            )
+    return row["translated_text"] if row is not None else None
+
+
+async def save_translation_cache(
+    pack_id: str, src_lang: str, tgt_lang: str, text_hash: str, source_text: str, translated_text: str
+) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO translation_cache (pack_id, src_lang, tgt_lang, text_hash, source_text, translated_text) "
+            "VALUES ($1,$2,$3,$4,$5,$6) "
+            "ON CONFLICT (pack_id, src_lang, tgt_lang, text_hash) DO NOTHING",
+            pack_id, src_lang, tgt_lang, text_hash, source_text, translated_text,
+        )
+
+
+async def get_general_tts_audio(pack_id: str, lang: str, voice: str, text_hash: str) -> bytes | None:
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT audio_path FROM tts_audio_cache WHERE pack_id=$1 AND lang=$2 AND voice=$3 AND text_hash=$4",
+            pack_id, lang, voice, text_hash,
+        )
+        if row is not None:
+            await conn.execute(
+                "UPDATE tts_audio_cache SET hit_count = hit_count + 1, last_used_at = now() "
+                "WHERE pack_id=$1 AND lang=$2 AND voice=$3 AND text_hash=$4",
+                pack_id, lang, voice, text_hash,
+            )
+    if row is None:
+        return None
+    return read_audio_file(row["audio_path"])
+
+
+async def save_general_tts_audio(pack_id: str, lang: str, voice: str, text_hash: str, pcm_bytes: bytes) -> str:
+    cache_dir = os.path.join(AUDIO_CACHE_DIR, pack_id, "general")
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"{lang}_{voice}_{text_hash}.pcm")
+    with open(path, "wb") as f:
+        f.write(pcm_bytes)
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO tts_audio_cache (pack_id, lang, voice, text_hash, audio_path) "
+            "VALUES ($1,$2,$3,$4,$5) "
+            "ON CONFLICT (pack_id, lang, voice, text_hash) DO UPDATE SET audio_path = EXCLUDED.audio_path",
+            pack_id, lang, voice, text_hash, path,
+        )
+    return path
 
 
 # ---------------------------------------------------------------------------

@@ -12,16 +12,25 @@
     <div class="stat-grid">
       <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.today_total) }}</div><div class="label">Total spent today</div></div>
       <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.cost_avoided_today) }}</div><div class="label">Est. avoided by caching</div></div>
-      <div class="stat"><div class="num">{{ cost.cache_hits_today }}</div><div class="label">FAQ cache hits today</div></div>
+      <div class="stat"><div class="num">{{ cost.cache_hits_today }}</div><div class="label">Cache hits today (FAQ + repeated phrases)</div></div>
       <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.all_time_total) }}</div><div class="label">All-time total spent</div></div>
     </div>
     <p style="color:#9096a3;font-size:13px;margin-top:14px;">
-      "Avoided" = today's cache hits × the average translate+TTS cost of today's non-cached requests — a real observed average, not an assumed rate. STT is always billed (every utterance has to be transcribed) whether or not it hits the FAQ cache.
+      "Avoided" = today's cache hits × the average translate+TTS cost of today's genuine cache-miss requests — a real observed average, not an assumed rate. STT is always billed (every utterance has to be transcribed) whether or not it hits a cache.
     </p>
     <div style="display:flex;gap:24px;margin-top:18px;font-size:14px;">
       <div><strong>Speech-to-text:</strong> ₹{{ "%.2f"|format(cost.today_stt) }}</div>
       <div><strong>Translation:</strong> ₹{{ "%.2f"|format(cost.today_translate) }}</div>
       <div><strong>Text-to-speech:</strong> ₹{{ "%.2f"|format(cost.today_tts) }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Noise / false triggers</h2>
+    <p style="color:#9096a3;font-size:13px;">Utterances where VAD detected speech but STT came back empty (background noise, coughs, mic bumps) — these still cost a real STT call with no useful result. High numbers here are a signal to retune VAD sensitivity, not a cost to eliminate in software alone.</p>
+    <div class="stat-grid">
+      <div class="stat"><div class="num">{{ cost.noise_triggers_today }}</div><div class="label">False triggers today</div></div>
+      <div class="stat"><div class="num">₹{{ "%.2f"|format(cost.noise_cost_today) }}</div><div class="label">Spent on false triggers today</div></div>
     </div>
   </div>
 
