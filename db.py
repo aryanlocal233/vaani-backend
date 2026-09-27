@@ -38,11 +38,20 @@ async def load_pack(pack_id: str) -> list[dict]:
             "SELECT faq_id, category FROM faq_knowledge WHERE pack_id = $1 AND status = 'approved'",
             pack_id,
         )
+        # Filtered to the same 'approved' faq_ids as the query above (via the JOIN) -- draft/
+        # retired FAQs can have keywords/answers rows too, and those faq_ids are never in
+        # `entries` below, so an unfiltered fetch here KeyErrors the moment a draft has keywords.
         keyword_rows = await conn.fetch(
-            "SELECT faq_id, language, keyword FROM faq_keywords WHERE pack_id = $1", pack_id
+            "SELECT k.faq_id, k.language, k.keyword FROM faq_keywords k "
+            "JOIN faq_knowledge f ON f.pack_id = k.pack_id AND f.faq_id = k.faq_id "
+            "WHERE k.pack_id = $1 AND f.status = 'approved'",
+            pack_id,
         )
         answer_rows = await conn.fetch(
-            "SELECT faq_id, language, answer_text FROM faq_answers WHERE pack_id = $1", pack_id
+            "SELECT a.faq_id, a.language, a.answer_text FROM faq_answers a "
+            "JOIN faq_knowledge f ON f.pack_id = a.pack_id AND f.faq_id = a.faq_id "
+            "WHERE a.pack_id = $1 AND f.status = 'approved'",
+            pack_id,
         )
 
     entries: dict[str, dict] = {

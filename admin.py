@@ -5,6 +5,7 @@ require_admin() as its first line."""
 from __future__ import annotations
 
 import datetime
+import time
 
 import bcrypt
 from fastapi import APIRouter, Form, Request
@@ -19,6 +20,29 @@ import runtime_state
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="templates")
+
+# Login lockout: in-process dict is safe because the app runs a single uvicorn worker (see
+# Dockerfile) -- no cross-process race, no need for a shared store like Redis for this. Keyed by
+# client IP + attempted username so one bad actor can't lock out someone else's real account.
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_WINDOW_SECONDS = 15 * 60
+_failed_logins: dict[str, list[float]] = {}
+
+
+def _login_lockout_key(request: Request, username: str) -> str:
+    client_ip = request.client.host if request.client else "unknown"
+    return f"{client_ip}:{username.lower()}"
+
+
+def _is_locked_out(key: str) -> bool:
+    now = time.monotonic()
+    attempts = [t for t in _failed_logins.get(key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _failed_logins[key] = attempts
+    return len(attempts) >= _LOGIN_MAX_ATTEMPTS
+
+
+def _record_failed_login(key: str) -> None:
+    _failed_logins.setdefault(key, []).append(time.monotonic())
 
 
 def require_admin(request: Request) -> str | None:
@@ -38,9 +62,17 @@ async def login_form(request: Request):
 
 @router.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    lockout_key = _login_lockout_key(request, username)
+    if _is_locked_out(lockout_key):
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"error": "Too many failed attempts. Try again in 15 minutes."}, status_code=429,
+        )
     row = await db.get_admin_by_username(username)
     if row is None or not bcrypt.checkpw(password.encode("utf-8"), row["password_hash"].encode("utf-8")):
+        _record_failed_login(lockout_key)
         return templates.TemplateResponse(request, "login.html", {"error": "Invalid username or password"}, status_code=401)
+    _failed_logins.pop(lockout_key, None)
     request.session["admin_username"] = username
     return RedirectResponse("/admin", status_code=303)
 

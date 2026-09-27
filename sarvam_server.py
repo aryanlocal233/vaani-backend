@@ -67,11 +67,13 @@ STT_URL = f"{SARVAM_BASE_URL}/speech-to-text"
 TRANSLATE_URL = f"{SARVAM_BASE_URL}/translate"
 TTS_URL = f"{SARVAM_BASE_URL}/text-to-speech"
 
-app = FastAPI(title="Vaani Sarvam AI Translation Server")
+# docs_url/redoc_url/openapi_url disabled: the full route/schema list has no reason to be public,
+# and nginx no longer proxies /docs or /openapi.json either (defense in depth).
+app = FastAPI(title="Vaani Sarvam AI Translation Server", docs_url=None, redoc_url=None, openapi_url=None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=pack_config.CORS_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +84,9 @@ if not pack_config.SESSION_SECRET:
         "SESSION_SECRET is not set -- required to sign the admin panel's session cookie. "
         "Set it in .env (any long random string)."
     )
-app.add_middleware(SessionMiddleware, secret_key=pack_config.SESSION_SECRET, same_site="lax")
+# https_only=True: this deployment is always served over TLS (nginx redirects 80->443), so the
+# admin session cookie should never be sent in cleartext even if some path bypassed that redirect.
+app.add_middleware(SessionMiddleware, secret_key=pack_config.SESSION_SECRET, same_site="lax", https_only=True)
 app.include_router(admin.router)
 
 http_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_connections=50))
