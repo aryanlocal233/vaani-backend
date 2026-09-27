@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 import base64
+import os
+
+# providers/sarvam_provider.py lazily `import sarvam_server` inside each method (deliberately, to
+# avoid a circular import with providers/registry.py -- see that module's docstring) -- and
+# sarvam_server.py raises at import time if SESSION_SECRET is unset. That import can be triggered
+# by any test that exercises providers.registry (even indirectly, via is_configured()), so set a
+# harmless placeholder here, once, before anything else in this package imports. Not a production
+# value -- irrelevant here since no test signs a real session cookie.
+os.environ.setdefault("SESSION_SECRET", "test-only-not-a-real-secret")
 
 import fakeredis.aioredis
 import pytest
