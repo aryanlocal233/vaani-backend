@@ -109,6 +109,29 @@ CREATE INDEX IF NOT EXISTS idx_analytics_pack_ts ON conversation_analytics (pack
 -- FAQ-shaped but are still exact repeats. Exact-hash match only (not fuzzy, unlike FAQ matching)
 -- -- a false match on arbitrary freeform conversation has no admin-curated safety net the way a
 -- wrong FAQ match would, so this deliberately only fires on an exact normalized-text repeat.
+-- Multi-provider abstraction: which provider actually handled each STT/translate/TTS call,
+-- whether an admin has forced a specific provider (bypassing auto-selection), and a log of
+-- every call for the usage report + the in-memory circuit breaker's health scoring.
+CREATE TABLE IF NOT EXISTS provider_config (
+    capability          TEXT PRIMARY KEY,   -- 'stt' | 'translate' | 'tts'
+    forced_provider     TEXT,               -- NULL = auto-select; else always use this one
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS provider_calls (
+    id              BIGSERIAL PRIMARY KEY,
+    ts              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    capability      TEXT NOT NULL,          -- 'stt' | 'translate' | 'tts'
+    provider        TEXT NOT NULL,          -- 'sarvam' | 'bhashini' | 'azure'
+    language        TEXT,
+    success         BOOLEAN NOT NULL,
+    quality_flag    BOOLEAN NOT NULL DEFAULT FALSE,
+    latency_ms      INT,
+    cost_inr        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_provider_calls_provider_ts ON provider_calls (provider, capability, ts);
+
 CREATE TABLE IF NOT EXISTS translation_cache (
     pack_id         TEXT NOT NULL,
     src_lang        TEXT NOT NULL,

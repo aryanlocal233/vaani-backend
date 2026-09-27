@@ -149,6 +149,76 @@ def now_ms() -> int:
     return int(time.perf_counter() * 1000)
 
 
+# ---------------------------------------------------------------------------
+# Multi-provider abstraction: admin-forced provider config + usage/quality log
+# ---------------------------------------------------------------------------
+
+async def get_provider_config() -> list[asyncpg.Record]:
+    async with _pool.acquire() as conn:
+        return await conn.fetch("SELECT capability, forced_provider FROM provider_config")
+
+
+async def set_provider_config(capability: str, forced_provider: str | None) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO provider_config (capability, forced_provider, updated_at) VALUES ($1, $2, now()) "
+            "ON CONFLICT (capability) DO UPDATE SET forced_provider = EXCLUDED.forced_provider, updated_at = now()",
+            capability, forced_provider,
+        )
+
+
+async def log_provider_call(
+    capability: str, provider: str, language: str | None, success: bool,
+    latency_ms: int, cost_inr: float, error: str | None, quality_flag: bool,
+) -> None:
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO provider_calls (capability, provider, language, success, quality_flag, latency_ms, cost_inr, error) "
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+            capability, provider, language, success, quality_flag, latency_ms, cost_inr, error,
+        )
+
+
+async def get_provider_usage_summary() -> list[dict]:
+    """One row per (capability, provider) with totals -- the admin usage report."""
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT capability, provider, "
+            "COUNT(*) AS total_calls, "
+            "COUNT(*) FILTER (WHERE success) AS successful_calls, "
+            "COUNT(*) FILTER (WHERE quality_flag) AS quality_flags, "
+            "COALESCE(SUM(cost_inr), 0) AS total_cost, "
+            "COALESCE(AVG(latency_ms), 0) AS avg_latency_ms, "
+            "MAX(ts) AS last_used "
+            "FROM provider_calls "
+            "GROUP BY capability, provider "
+            "ORDER BY capability, total_calls DESC"
+        )
+    return [
+        {
+            "capability": r["capability"],
+            "provider": r["provider"],
+            "total_calls": r["total_calls"],
+            "successful_calls": r["successful_calls"],
+            "success_rate": round(r["successful_calls"] / r["total_calls"] * 100, 1) if r["total_calls"] else 0.0,
+            "quality_flags": r["quality_flags"],
+            "total_cost": float(r["total_cost"]),
+            "avg_latency_ms": round(float(r["avg_latency_ms"])),
+            "last_used": r["last_used"],
+        }
+        for r in rows
+    ]
+
+
+async def get_recent_provider_errors(limit: int = 20) -> list[asyncpg.Record]:
+    async with _pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT ts, capability, provider, language, error FROM provider_calls "
+            "WHERE NOT success ORDER BY ts DESC LIMIT $1",
+            limit,
+        )
+
+
 async def get_analytics_summary(pack_id: str) -> dict:
     async with _pool.acquire() as conn:
         row = await conn.fetchrow(

@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 import db
 import faq_state
 import pack_config
+import providers.registry
 import runtime_state
 
 router = APIRouter(prefix="/admin")
@@ -94,6 +95,47 @@ async def devices_page(request: Request):
         "pack_id": pack_config.EVENT_PACK,
         "devices": devices,
     })
+
+
+@router.get("/providers", response_class=HTMLResponse)
+async def providers_page(request: Request):
+    username = require_admin(request)
+    if not username:
+        return RedirectResponse("/admin/login", status_code=303)
+
+    usage = await db.get_provider_usage_summary()
+    errors = await db.get_recent_provider_errors(15)
+    config_rows = await db.get_provider_config()
+    forced = {row["capability"]: row["forced_provider"] for row in config_rows}
+
+    all_providers = ["sarvam", "bhashini", "azure"]
+    configured = {}
+    for cap, reg in (("stt", providers.registry.STT_PROVIDERS),
+                      ("translate", providers.registry.TRANSLATE_PROVIDERS),
+                      ("tts", providers.registry.TTS_PROVIDERS)):
+        configured[cap] = {name: adapter.is_configured() for name, adapter in reg.items()}
+
+    return templates.TemplateResponse(request, "providers.html", {
+        "username": username,
+        "pack_id": pack_config.EVENT_PACK,
+        "usage": usage,
+        "errors": errors,
+        "forced": forced,
+        "configured": configured,
+        "all_providers": all_providers,
+        "msg": request.query_params.get("msg"),
+    })
+
+
+@router.post("/providers/{capability}")
+async def set_provider_override(request: Request, capability: str):
+    if not require_admin(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    form = await request.form()
+    forced_provider = form.get("forced_provider") or None
+    await db.set_provider_config(capability, forced_provider)
+    await providers.registry.reload_config()
+    return RedirectResponse("/admin/providers?msg=Saved", status_code=303)
 
 
 @router.get("/cost", response_class=HTMLResponse)

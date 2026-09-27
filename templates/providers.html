@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Vaani Admin — Providers</title>
+{% include "_style.html" %}
+<style>
+  .provider-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:12px; margin-right:4px; }
+  .provider-badge.on { background:#0f766e33; color:#6ee7b7; }
+  .provider-badge.off { background:#5f6368; color:#c1c4c8; }
+  .logic-box { background:#0b0d12; border:1px solid #22262f; border-radius:10px; padding:16px 18px; font-size:13.5px; color:#c1c4c8; line-height:1.6; }
+  .logic-box code { color:#6ee7b7; }
+  .logic-box b { color:#e8eaef; }
+</style>
+</head><body>
+  <div class="topbar">
+    <h1 style="margin:0;"><a href="/admin" style="color:#9096a3;text-decoration:none;">← Admin</a> / Providers</h1>
+    <span>{{ username }} · <a href="/admin/logout">Log out</a></span>
+  </div>
+  {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0;">How auto-selection works</h2>
+    <div class="logic-box">
+      For each request, only providers that are <b>configured</b> (real credentials) and
+      <b>support the language needed</b> are candidates. If none of that capability's providers
+      are forced below, candidates are ranked cheapest-first by an <b>effective cost</b>:<br><br>
+      <code>effective_cost = raw_price &times; (1 + 2&times;recent_failure_rate + 1&times;recent_quality_flag_rate)</code>
+      <br><br>
+      A provider that's been failing or producing suspect output recently (last 20 calls) gets
+      pushed down the ranking even if its list price is lowest — its real-world cost is higher
+      than the sticker price once retries and bad answers are counted. A provider is skipped
+      entirely while its <b>circuit breaker</b> is open (3 consecutive failures, or over 50% of
+      its last 10 calls failed) — it gets a 30s cooldown before being tried again, doubling each
+      time a retry fails, up to 5 minutes, and resetting the moment it succeeds again.
+      <br><br>
+      If the top candidate's call fails anyway, the <b>next</b> candidate is tried immediately,
+      within the same request — not just "better luck next time." Every call, whichever provider
+      handled it, is logged below with its real cost and outcome.
+      <br><br>
+      Force-selecting a provider below <b>overrides all of this</b> — that provider alone is
+      used, with no automatic failover, for deliberate testing/control.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Provider configuration</h2>
+    <table>
+      <tr><th>Capability</th><th>Configured providers</th><th>Active mode</th></tr>
+      {% for cap in ["stt", "translate", "tts"] %}
+      <tr>
+        <td>{{ cap }}</td>
+        <td>
+          {% for p in all_providers %}
+            <span class="provider-badge {{ 'on' if configured[cap][p] else 'off' }}">{{ p }}{{ '' if configured[cap][p] else ' (not configured)' }}</span>
+          {% endfor %}
+        </td>
+        <td>
+          <form method="post" action="/admin/providers/{{ cap }}" style="display:flex;gap:8px;">
+            <select name="forced_provider" style="width:auto;margin:0;">
+              <option value="" {{ 'selected' if not forced.get(cap) else '' }}>Auto (recommended)</option>
+              {% for p in all_providers %}
+              <option value="{{ p }}" {{ 'selected' if forced.get(cap) == p else '' }}>Force: {{ p }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" style="margin:0;padding:8px 14px;">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Usage report by service</h2>
+    <table>
+      <tr><th>Capability</th><th>Provider</th><th>Calls</th><th>Success rate</th><th>Quality flags</th><th>Total cost</th><th>Avg latency</th><th>Last used</th></tr>
+      {% for row in usage %}
+      <tr>
+        <td>{{ row.capability }}</td>
+        <td>{{ row.provider }}</td>
+        <td class="num">{{ row.total_calls }}</td>
+        <td class="num">{{ row.success_rate }}%</td>
+        <td class="num">{{ row.quality_flags }}</td>
+        <td class="num">₹{{ "%.2f"|format(row.total_cost) }}</td>
+        <td class="num">{{ row.avg_latency_ms }}ms</td>
+        <td>{{ row.last_used.strftime("%Y-%m-%d %H:%M") if row.last_used else "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" style="color:#9096a3;">No provider calls logged yet.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Recent failures</h2>
+    <table>
+      <tr><th>Time</th><th>Capability</th><th>Provider</th><th>Language</th><th>Error</th></tr>
+      {% for e in errors %}
+      <tr>
+        <td>{{ e.ts.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+        <td>{{ e.capability }}</td>
+        <td>{{ e.provider }}</td>
+        <td>{{ e.language or "—" }}</td>
+        <td style="font-size:12px;">{{ e.error }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" style="color:#9096a3;">No failures logged.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</body></html>

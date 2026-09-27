@@ -1,0 +1,132 @@
+<title>Vaani Provider Alternatives</title>
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --border:#dde1e7;
+  --ink:#14181f; --ink-dim:#565f6e;
+  --accent:#c2660b; --accent-ink:#7a4008;
+  --safe:#0f766e; --safe-bg:#e6f4f2;
+  --warn:#b45309; --warn-bg:#fdf1e2;
+  --crit:#b3261e; --crit-bg:#fbe9e8;
+  --code-bg:#eef0f4;
+  --font-head:'Source Serif 4', Georgia, serif;
+  --font-body:'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+    --ink:#e8eaee; --ink-dim:#9aa3b1;
+    --accent:#e0913f; --accent-ink:#f3c98c;
+    --safe:#3fb8ab; --safe-bg:#132825;
+    --warn:#e0a447; --warn-bg:#2b2113;
+    --crit:#e46a62; --crit-bg:#2c1817;
+    --code-bg:#22262e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+  --ink:#e8eaee; --ink-dim:#9aa3b1;
+  --accent:#e0913f; --accent-ink:#f3c98c;
+  --safe:#3fb8ab; --safe-bg:#132825;
+  --warn:#e0a447; --warn-bg:#2b2113;
+  --crit:#e46a62; --crit-bg:#2c1817;
+  --code-bg:#22262e;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);line-height:1.6;padding-inline:16px}
+.page{max-width:1080px;margin:0 auto;padding-block:32px 96px}
+header.hero{margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+header.hero .kicker{font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)}
+h1{font-family:var(--font-head);font-size:clamp(26px,4vw,38px);line-height:1.15;margin:8px 0 12px;text-wrap:balance}
+header.hero p.lead{color:var(--ink-dim);max-width:70ch;font-size:16px}
+section{margin-bottom:40px}
+h2{font-family:var(--font-head);font-size:21px;margin:0 0 10px}
+h3{font-size:15px;margin:20px 0 8px}
+p{max-width:78ch}
+.note{color:var(--ink-dim);font-size:13.5px;max-width:76ch}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:12px 0}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--surface);font-family:var(--font-mono);font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-dim)}
+td.num,th.num{font-variant-numeric:tabular-nums;text-align:right}
+.table-wrap{overflow-x:auto}
+code{font-family:var(--font-mono);font-size:.9em}
+.badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 8px;border-radius:6px;text-transform:uppercase}
+.badge.safe{background:var(--safe-bg);color:var(--safe)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.crit{background:var(--crit-bg);color:var(--crit)}
+.rec{border:1px solid var(--border);border-left:4px solid var(--safe);border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:14px;background:var(--surface)}
+.rec.warn{border-left-color:var(--warn)}
+.rec.crit{border-left-color:var(--crit)}
+.rec h4{margin:0 0 6px;font-size:15px}
+.rec p{margin:4px 0 0;font-size:13.5px;color:var(--ink-dim)}
+footer{color:var(--ink-dim);font-size:12px;border-top:1px solid var(--border);padding-top:16px;margin-top:20px}
+</style>
+<div class="page">
+<header class="hero">
+  <div class="kicker">Provider risk analysis — decision support, not a decision</div>
+  <h1>Vaani depends entirely on one API. Here's what could replace it, and what actually would.</h1>
+  <p class="lead">Sarvam AI failing (outage, rate limit, pricing change, deprecation) currently stops the whole app — STT, translation, and TTS all go through one vendor with no fallback. This compares real alternatives on cost, language coverage, and whether they actually remove the single-point-of-failure risk or just relocate it.</p>
+</header>
+
+<section>
+  <h2>Sarvam's real rates (already measured in production)</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Stage</th><th class="num">Rate</th></tr>
+    <tr><td>Speech-to-text</td><td class="num">₹0.50 / minute of audio</td></tr>
+    <tr><td>Translation</td><td class="num">₹0.005 / character</td></tr>
+    <tr><td>Text-to-speech</td><td class="num">₹0.003 / character</td></tr>
+  </table></div>
+  <p class="note">From your own cost dashboard, translation is currently the single biggest line item — not TTS or STT — because caching already removes most repeat TTS/translate cost, but every utterance still needs a fresh STT call.</p>
+</section>
+
+<section>
+  <h2>Alternatives compared</h2>
+  <p class="note">All USD converted at ≈₹85/$1 for comparison. Sources checked directly, not from memory — see footer.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Provider</th><th class="num">STT</th><th class="num">Translate</th><th class="num">TTS</th><th>Indian language coverage</th></tr>
+    <tr><td><b>Sarvam AI</b> (current)</td><td class="num">₹0.50/min</td><td class="num">₹0.005/char</td><td class="num">₹0.003/char</td><td>12 live, 11 more gated behind Sarvam's own beta approval</td></tr>
+    <tr><td>Bhashini (govt.)</td><td class="num" colspan="3">Free/heavily discounted for govt.+non-commercial use; commercial tier ~₹250/mo flat (50k TTS chars/day)</td><td>22 official languages, incl. Odia, by design (national mission)</td></tr>
+    <tr><td>Google Cloud</td><td class="num">≈₹1.36/min <span class="badge warn">2.7×</span></td><td class="num">≈₹0.0017/char <span class="badge safe">0.3×</span></td><td class="num">≈₹0.0014/char <span class="badge safe">0.45×</span></td><td>Hindi, Bengali, Tamil, Telugu, Gujarati, Kannada + more confirmed</td></tr>
+    <tr><td>Azure AI Speech</td><td class="num">≈₹1.42/min <span class="badge warn">2.8×</span></td><td class="num">≈₹0.00085/char <span class="badge safe">0.17×</span></td><td class="num">≈₹0.0014/char <span class="badge safe">0.45×</span></td><td>13 Indian languages incl. confirmed Odia voices (Subhasini, Sukant)</td></tr>
+    <tr><td>AWS</td><td class="num">≈₹0.85/min <span class="badge safe">1.7×</span></td><td class="num">≈₹0.0013/char <span class="badge safe">0.26×</span></td><td class="num" colspan="1"><span class="badge crit">gap</span></td><td><b>Polly TTS: Hindi + Indian English only</b> — 10 of 12 needed languages unsupported</td></tr>
+    <tr><td>AI4Bharat (self-hosted)</td><td class="num" colspan="3">₹0 per request — only GPU hosting cost (~₹1,000–1,700/day for an always-on small GPU instance, or only-during-event if spun up on demand)</td><td>22 languages, MIT-licensed, open weights (IndicConformer ASR, IndicTrans2 NMT, Indic-Parler-TTS)</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>What each option actually solves</h2>
+
+  <div class="rec">
+    <h4>Bhashini — cheapest fast-follow, and you've already half-built it</h4>
+    <p>This exact codebase has dormant Bhashini scaffolding (<code>main.py</code>, <code>config.py</code>) from before the Sarvam pivot — wiring it back in as a fallback is meaningfully less work than integrating a new vendor from scratch. Government-backed, likely free or near-free for a mela-authority deployment specifically, and covers Odia by design (it's a national-mission platform, not an afterthought). The tradeoff: government infrastructure has historically been less consistent on uptime/latency than commercial clouds — worth validating with your own load test before trusting it as the primary fallback, not just assuming.</p>
+  </div>
+
+  <div class="rec warn">
+    <h4>Azure — cheapest commercial cloud, but reshapes where your cost goes</h4>
+    <p>Azure's translate (₹0.00085/char) and TTS (₹0.0014/char) are both cheaper than Sarvam's — but its STT (₹1.42/min) is nearly 3× pricier. Since caching already minimizes repeat translate/TTS cost, STT is what scales with raw conversation <em>count</em> regardless of caching — meaning at a mature, heavily-cached deployment, switching entirely to Azure could net out <em>more</em> expensive, not less, even though two of three line items look cheaper in isolation. Best used as a fallback for when Sarvam is down, not a wholesale replacement.</p>
+  </div>
+
+  <div class="rec crit">
+    <h4>AWS — ruled out as a full replacement</h4>
+    <p>Amazon Polly's Indian-language TTS coverage is Hindi and Indian English only. A Bengali or Odia pilgrim would hit the exact same silent-wrong-language failure class already fixed once this session. Not viable as a single fallback provider without pairing it with a different TTS vendor for the other 10 languages — at which point you've built two integrations for the price of one.</p>
+  </div>
+
+  <div class="rec">
+    <h4>AI4Bharat (self-hosted) — the only option that removes the risk category, not just the vendor</h4>
+    <p>Every other option here is still "a different company's API can rate-limit or go down." A self-hosted open-source stack (IndicConformer + IndicTrans2 + Indic-Parler-TTS, all MIT-licensed) is the only path that actually eliminates external-API dependency for the core pipeline — no rate limits, no per-request billing, no third-party outage risk, and it covers languages Sarvam currently gates behind its own beta approval (Maithili, Urdu, and others already blocked in your testing). The real cost is ops: you'd be running and maintaining GPU inference yourselves for the first time, which is a genuine new responsibility, not a config change.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The distinction worth deciding on first</h2>
+  <p>"Add a second API" and "stop depending on any single API" are different goals, and the right next step depends on which one you actually want:</p>
+  <ul>
+    <li><b>If the goal is "survive a Sarvam outage/rate-limit without the app going dark":</b> wire in Bhashini (cheapest, partially built already) or Azure as an automatic fallback behind a provider-abstraction layer — a circuit breaker that switches over on repeated failures. Still ultimately dependent on <em>some</em> external API, just not only one.</li>
+    <li><b>If the goal is "never depend on any external vendor for the core pipeline again":</b> that's only AI4Bharat, self-hosted — a bigger, different project (standing up and maintaining GPU inference), not a config swap.</li>
+  </ul>
+</section>
+
+<footer>
+  Rates converted at ≈₹85/USD for comparison purposes; verify current rates directly with each vendor before committing. Sources: Google Cloud, Microsoft Azure, and AWS official pricing pages and recent third-party pricing trackers (Sep 2026); Bhashini.gov.in and Bhashini.ai; AI4Bharat/IIT Madras GitHub repositories and model cards. Compiled 2026-09-27.
+</footer>
+</div>

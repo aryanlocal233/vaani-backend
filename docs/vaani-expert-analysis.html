@@ -1,0 +1,318 @@
+<title>Vaani Technical Review</title>
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --border:#dde1e7;
+  --ink:#14181f; --ink-dim:#565f6e;
+  --accent:#c2660b; --accent-ink:#7a4008;
+  --safe:#0f766e; --safe-bg:#e6f4f2;
+  --warn:#b45309; --warn-bg:#fdf1e2;
+  --crit:#b3261e; --crit-bg:#fbe9e8;
+  --info:#3b5bdb; --info-bg:#eaedfc;
+  --code-bg:#eef0f4;
+  --font-head:'Source Serif 4', Georgia, serif;
+  --font-body:'IBM Plex Sans', -apple-system, sans-serif;
+  --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+    --ink:#e8eaee; --ink-dim:#9aa3b1;
+    --accent:#e0913f; --accent-ink:#f3c98c;
+    --safe:#3fb8ab; --safe-bg:#132825;
+    --warn:#e0a447; --warn-bg:#2b2113;
+    --crit:#e46a62; --crit-bg:#2c1817;
+    --info:#8ea1f0; --info-bg:#1c2340;
+    --code-bg:#22262e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c; --surface:#1b1f26; --border:#2b313b;
+  --ink:#e8eaee; --ink-dim:#9aa3b1;
+  --accent:#e0913f; --accent-ink:#f3c98c;
+  --safe:#3fb8ab; --safe-bg:#132825;
+  --warn:#e0a447; --warn-bg:#2b2113;
+  --crit:#e46a62; --crit-bg:#2c1817;
+  --info:#8ea1f0; --info-bg:#1c2340;
+  --code-bg:#22262e;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);line-height:1.6;padding-inline:16px}
+.page{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;padding-block:32px 96px}
+@media (max-width:880px){.page{grid-template-columns:1fr}}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;font-size:13px;max-height:calc(100vh - 48px);overflow-y:auto}
+@media (max-width:880px){nav.toc{position:static;max-height:none;border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface)}}
+nav.toc .toc-title{font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);font-size:11px;margin-bottom:10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+nav.toc li{counter-increment:toc;margin-bottom:6px}
+nav.toc a{color:var(--ink-dim);text-decoration:none;display:block}
+nav.toc a:hover{color:var(--accent)}
+nav.toc a::before{content:counter(toc) ". ";font-family:var(--font-mono);color:var(--accent-ink);opacity:.8}
+main{min-width:0}
+header.hero{margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+header.hero .kicker{font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-ink)}
+h1{font-family:var(--font-head);font-size:clamp(28px,4vw,42px);line-height:1.1;margin:8px 0 12px;text-wrap:balance}
+header.hero p.lead{color:var(--ink-dim);max-width:66ch;font-size:16px}
+.verdict-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.verdict-bar .pill{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 14px;font-family:var(--font-mono);font-size:12.5px}
+.verdict-bar .pill b{color:var(--accent-ink)}
+section{margin-bottom:44px;scroll-margin-top:20px}
+h2{font-family:var(--font-head);font-size:23px;margin:0 0 6px;display:flex;align-items:baseline;gap:10px}
+h2 .num{font-family:var(--font-mono);color:var(--accent-ink);font-size:15px}
+h3{font-family:var(--font-body);font-weight:600;font-size:16px;margin:22px 0 8px}
+p{max-width:76ch}
+.note{color:var(--ink-dim);font-size:14px;max-width:72ch;margin-top:-2px;margin-bottom:16px}
+code,.mono{font-family:var(--font-mono);font-size:.92em}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--surface);font-family:var(--font-mono);font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-dim)}
+.table-wrap{overflow-x:auto}
+.badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.badge.safe{background:var(--safe-bg);color:var(--safe)}
+.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.crit{background:var(--crit-bg);color:var(--crit)}
+.badge.info{background:var(--info-bg);color:var(--info)}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:14px 0}
+.feature{border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface)}
+.feature h4{margin:0 0 6px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.feature p{font-size:13px;color:var(--ink-dim);margin:0}
+.finding{border:1px solid var(--border);border-left:4px solid var(--crit);border-radius:0 10px 10px 0;padding:12px 16px;margin-bottom:12px;background:var(--surface)}
+.finding.warn{border-left-color:var(--warn)}
+.finding.info{border-left-color:var(--info)}
+.finding h4{margin:0 0 4px;font-size:14.5px;display:flex;gap:8px;align-items:center}
+.finding p{margin:4px 0 0;font-size:13.5px;color:var(--ink-dim)}
+.finding .fix{margin-top:8px;font-size:13.5px}
+.finding .fix b{color:var(--safe)}
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin:14px 0}
+.diagram figcaption{font-size:12px;color:var(--ink-dim);margin-top:10px;font-family:var(--font-mono)}
+hr.rule{border:none;border-top:1px solid var(--border);margin:40px 0}
+footer{color:var(--ink-dim);font-size:12.5px;border-top:1px solid var(--border);padding-top:18px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.two-col{grid-template-columns:1fr}}
+</style>
+
+<div class="page">
+<nav class="toc">
+  <div class="toc-title">Vaani — Technical Review</div>
+  <ol>
+    <li><a href="#summary">Executive summary</a></li>
+    <li><a href="#features">Feature inventory</a></li>
+    <li><a href="#architecture">Technical architecture</a></li>
+    <li><a href="#strengths">Engineering strengths</a></li>
+    <li><a href="#usecase">India vs. abroad use case</a></li>
+    <li><a href="#risks">Risks &amp; gaps</a></li>
+    <li><a href="#roadmap">Improvement roadmap</a></li>
+    <li><a href="#verdict">Verdict</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="kicker">Independent technical &amp; product review</div>
+  <h1>Vaani: from translator to help-desk platform — where it stands, and what's next</h1>
+  <p class="lead">An expert-level assessment of the current codebase (Android client + FastAPI backend, deployed and load-verified in this session) against its stated goal: a cost-effective, high-performance multilingual help-desk system for India's high-footfall public events.</p>
+  <div class="verdict-bar">
+    <span class="pill"><b>Maturity</b> working MVP+, production-hardening pending</span>
+    <span class="pill"><b>Cost engineering</b> ahead of most comparable systems</span>
+    <span class="pill"><b>Reliability</b> single points of failure remain</span>
+    <span class="pill"><b>Reach</b> India-first, global reach gated on provider abstraction</span>
+  </div>
+</header>
+
+<section id="summary">
+  <h2><span class="num">01</span> Executive summary</h2>
+  <p>Vaani has grown, over the course of this build, from a straightforward voice-translation demo into something closer to its intended positioning: <em>an AI-powered bidirectional help-desk communication system</em>, not "another Google Translate." The parts that make that claim credible today are real and verified — a knowledge-pack architecture, three tiers of caching that measurably cut cost and latency, a cost-accounting dashboard with real per-request economics, an admin kill-switch, device tracking, and a bug fix that stopped the app silently answering pilgrims in the wrong language.</p>
+  <p>What it is <em>not</em> yet is a hardened, multi-counter, disaster-tolerant production system. The backend runs as a single Docker container on a single shared VPS with no automated backups, no monitoring, no load testing at mela scale, and one uncached external dependency (Sarvam AI) with no fallback provider wired in despite that being part of the original design. None of this is unusual for a system at this stage — it's the honest state of a fast-moving MVP — but it is the gap between "works well in verified single-session tests" and "safe to depend on for tens of thousands of pilgrims a day."</p>
+</section>
+
+<section id="features">
+  <h2><span class="num">02</span> Feature inventory</h2>
+  <p class="note">Every item below is implemented and has been exercised with a live test against the deployed system, not just designed on paper.</p>
+
+  <h3>Core conversation</h3>
+  <div class="feature-grid">
+    <div class="feature"><h4>Hands-free VAD capture <span class="badge safe">live</span></h4><p>No push-to-talk; voice-activity detection drives the whole turn-taking state machine.</p></div>
+    <div class="feature"><h4>Bidirectional live translation <span class="badge safe">live</span></h4><p>STT (auto-detect) → NMT → TTS via Sarvam AI, streamed over a binary WebSocket protocol.</p></div>
+    <div class="feature"><h4>Barge-in <span class="badge safe">live</span></h4><p>Speaking over TTS playback cancels it and restarts listening immediately.</p></div>
+    <div class="feature"><h4>Open-set visitor language detection <span class="badge safe">live</span></h4><p>Operator's language is fixed and manually chosen; the visitor side auto-detects across all 12 supported languages and updates the UI live, mid-session, without reconnecting.</p></div>
+    <div class="feature"><h4>Same-language bypass <span class="badge safe">live</span></h4><p>Skips translation entirely (zero cost) when both parties are detected speaking the same language.</p></div>
+    <div class="feature"><h4>Idle auto-end <span class="badge safe">live</span></h4><p>Session ends automatically after 35s with no detected speech (noise-robust, language-agnostic VAD signal, not raw silence).</p></div>
+  </div>
+
+  <h3>Cost &amp; performance engineering</h3>
+  <div class="feature-grid">
+    <div class="feature"><h4>3-tier FAQ cache <span class="badge safe">live</span></h4><p>Exact keyword → fuzzy token-overlap → full pipeline. Verified: repeat FAQ answered in 3ms with zero paid API calls.</p></div>
+    <div class="feature"><h4>General response cache <span class="badge safe">live</span></h4><p>Catches repeated non-FAQ phrases (e.g. an operator's recurring lines) via exact-hash match. Verified: a repeat exchange dropped from 4.5s to 1.6s.</p></div>
+    <div class="feature"><h4>Durable, pre-warmable audio cache <span class="badge safe">live</span></h4><p>Disk + Postgres-backed, survives restarts; a batch job pre-synthesizes all FAQ audio ahead of an event.</p></div>
+    <div class="feature"><h4>Live-translate-and-cache fallback <span class="badge safe">live</span></h4><p>An unauthored language's FAQ answer is translated on the spot once, then permanently cached — turns missing content into a one-time cost, not a silent wrong-language failure.</p></div>
+    <div class="feature"><h4>Real per-request cost accounting <span class="badge safe">live</span></h4><p>STT/translate/TTS cost computed from Sarvam's actual rates and logged on every code path, including error paths.</p></div>
+  </div>
+
+  <h3>Administration &amp; oversight</h3>
+  <div class="feature-grid">
+    <div class="feature"><h4>Login-gated admin panel <span class="badge safe">live</span></h4><p>Session-based auth, bcrypt-hashed passwords.</p></div>
+    <div class="feature"><h4>FAQ CRUD per knowledge pack <span class="badge safe">live</span></h4><p>Create/edit keywords and answers per language; editing an answer auto-invalidates its stale cached audio.</p></div>
+    <div class="feature"><h4>Cost dashboard <span class="badge safe">live</span></h4><p>Today/all-time spend by stage, hourly usage table, an evidence-based "cost avoided by caching" estimate.</p></div>
+    <div class="feature"><h4>Device registry <span class="badge safe">live</span></h4><p>Every connecting device's model, OS, app version, connection count, last-seen.</p></div>
+    <div class="feature"><h4>Kill-switch <span class="badge safe">live</span></h4><p>Pause/resume the whole API from the panel — verified to stop an already-open, in-progress connection, not just new ones.</p></div>
+    <div class="feature"><h4>Emergency escalation flag <span class="badge safe">live</span></h4><p>Emergency-category FAQ matches are always answered, but flagged for the analytics/operator queue — loose matching is never the only safeguard.</p></div>
+  </div>
+
+  <h3>Designed but not yet built</h3>
+  <div class="feature-grid">
+    <div class="feature"><h4>Semantic/embedding matching <span class="badge info">planned</span></h4><p>pgvector-based intent matching (architecture Phase 3) — current matching is keyword + fuzzy token-overlap only.</p></div>
+    <div class="feature"><h4>Offline/degraded mode <span class="badge info">planned</span></h4><p>Scoped once as a much larger project (on-device STT/NMT/TTS); not attempted.</p></div>
+    <div class="feature"><h4>Provider fallback <span class="badge info">planned</span></h4><p>Single Sarvam AI dependency; no Bhashini/Azure/Google fallback wired in despite the abstraction being designed.</p></div>
+    <div class="feature"><h4>Language/query heat maps, QR continuation, announcements <span class="badge info">deferred</span></h4><p>Deliberately scoped out of V1 to avoid bloat.</p></div>
+  </div>
+</section>
+
+<section id="architecture">
+  <h2><span class="num">03</span> Technical architecture</h2>
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+    client["Android client\nKotlin · MVVM · Hilt\nVAD, OkHttp WS, AudioTrack"]
+    nginx["nginx :443\nTLS, vhost routing"]
+    api["FastAPI backend\nsarvam_server.py"]
+    pg[("PostgreSQL\nFAQ packs, caches,\nanalytics, devices")]
+    disk[("Disk\ncached PCM audio")]
+    sarvam["Sarvam AI\nSTT · NMT · TTS"]
+    admin["Admin panel\n/admin/*"]
+
+    client -- "wss:// binary protocol" --> nginx --> api
+    api --> pg
+    api --> disk
+    api -- "cache miss only" --> sarvam
+    admin --> pg
+    admin --> api
+    </pre>
+    <figcaption>Single VPS, single container per service — deliberately simple, not yet horizontally scaled.</figcaption>
+  </div>
+
+  <div class="table-wrap"><table>
+    <tr><th>Layer</th><th>Choice</th><th>Assessment</th></tr>
+    <tr><td>Android client</td><td>Kotlin, MVVM, Hilt, ViewBinding (no Compose)</td><td>Clean separation of concerns; VAD/state-machine code is well-commented and shows evidence of real debugging (resampler fix, idle-timeout, barge-in). No Compose is a deliberate, defensible choice for a small, stable UI surface.</td></tr>
+    <tr><td>Audio pipeline</td><td>AudioRecord (VOICE_COMMUNICATION) + AudioTrack (USAGE_MEDIA), custom resampler</td><td>Correct, non-obvious fix already applied: resampling to the device's native output rate avoids platform-resampler crackle — a real bug most teams would misdiagnose as a network issue.</td></tr>
+    <tr><td>Backend</td><td>FastAPI (Python), asyncpg, Postgres</td><td>Appropriate for the traffic profile; async throughout, no blocking calls found in the hot path. Single uvicorn worker, single process — a concurrency ceiling that hasn't been tested against.</td></tr>
+    <tr><td>Caching</td><td>3-tier FAQ cache + general response cache, both Postgres+disk backed</td><td>Genuinely sophisticated for the system's size — this is the part of the codebase most likely to impress a technical reviewer.</td></tr>
+    <tr><td>Deployment</td><td>Docker containers via ad hoc <code>docker run</code>, no Compose/IaC</td><td>Functional but fragile: redeploys depend on remembering exact flags (network, volumes, env-file) rather than a checked-in, reproducible definition.</td></tr>
+    <tr><td>Data layer</td><td>Single Postgres instance, no replication, no automated backup observed</td><td>The knowledge base, cost history, and cached audio all live in one place with no disaster recovery plan.</td></tr>
+  </table></div>
+</section>
+
+<section id="strengths">
+  <h2><span class="num">04</span> Engineering strengths worth naming explicitly</h2>
+  <ul>
+    <li><b>Cost-awareness is architectural, not bolted on.</b> Nearly every feature added past the MVP stage was cost-motivated (caching tiers, same-language bypass, live-translate-and-cache) and each was verified with a live before/after measurement rather than assumed.</li>
+    <li><b>Debugging discipline.</b> The audio-crackle fix, the visitor-language detection redesign, and the Odia/Bengali fallback bug were all root-caused with direct evidence (probing Sarvam's own API error messages, live pipeline timing tests, database queries) rather than guessed at.</li>
+    <li><b>Graceful degradation as a design principle.</b> Live-translate failures fall back to a language <em>someone</em> understands rather than erroring out; a paused API still tells the client why; an unrecognized detected language falls back to the last known direction instead of guessing.</li>
+    <li><b>The emergency-category safeguard</b> is a genuinely good safety design: never let a probabilistic match be the sole gate on a medical/missing-person response, but still answer instantly and flag it for human oversight.</li>
+  </ul>
+</section>
+
+<section id="usecase">
+  <h2><span class="num">05</span> India vs. abroad: where this actually fits</h2>
+
+  <h3>India — strong, differentiated fit</h3>
+  <p>The combination of Sarvam AI (an India-first model tuned for Indian language nuance) and the knowledge-pack + cost-dashboard architecture is a genuinely strong match for large religious/civic events: Gaya Ji, Kumbh Mela, Gangasagar, and comparable state-run gatherings. Three factors line up specifically:</p>
+  <ul>
+    <li><b>Procurement reality:</b> government/trust budgets need demonstrable ROI, not a demo. The cost dashboard's "estimated avoided spend" is the artifact that actually lands in that conversation — not a nice-to-have.</li>
+    <li><b>Linguistic diversity at extreme scale:</b> a single Bihar-based event genuinely sees Odia, Bengali, Marathi, Tamil, and Hindi speakers side by side — exactly the scenario that exposed the language-fallback bug fixed this session, and exactly the scenario a generic translator app doesn't optimize for.</li>
+    <li><b>Differentiation is real, not just rhetorical:</b> "Google Translate toh already laga hua hai" is answered concretely by things Google Translate has no equivalent of — an FAQ layer with authority-approved answers, an emergency escalation flag, per-counter device tracking, and a cost ledger.</li>
+  </ul>
+
+  <h3>Abroad — narrower, but real, opportunity</h3>
+  <p>Direct applicability outside India is currently bounded by Sarvam AI's language coverage, which is Indian-language-first (12 live, 11 more pending Sarvam's own beta approval, zero non-Indian languages). That rules out general-purpose global deployment today, but does not rule out a specific and genuinely underserved niche:</p>
+  <div class="two-col">
+    <div class="feature"><h4>Good fit today</h4><p>Indian consulates/embassies abroad, gurdwaras/temples serving diaspora communities (UK, US, Canada, Gulf), Indian-community hospital/legal-aid help desks — anywhere the visitor-side language pool is still Indian languages, just outside India.</p></div>
+    <div class="feature"><h4>Not a fit without more work</h4><p>General multicultural help desks (a Western hospital, an EU asylum intake center) needing Arabic, Spanish, Mandarin, Swahili, etc. — this requires the provider-abstraction layer that was designed but never built, so a non-Sarvam provider could plug in for non-Indian languages.</p></div>
+  </div>
+  <p class="note">The Android client and backend architecture themselves are not India-specific in any way — the ceiling here is entirely about which speech/translation provider sits behind the abstraction, not the product design.</p>
+</section>
+
+<section id="risks">
+  <h2><span class="num">06</span> Risks &amp; gaps — an honest accounting</h2>
+
+  <div class="finding">
+    <h4><span class="badge crit">Critical</span> Single point of failure, no redundancy</h4>
+    <p>One VPS, one Postgres instance, one backend container, no automated backups. A disk failure or an accidental <code>docker rm</code> on the wrong container loses the entire knowledge base, cached audio, and cost history at once.</p>
+    <p class="fix"><b>Fix:</b> automated nightly Postgres dumps to off-VPS storage at minimum; a documented, tested restore procedure; consider a managed Postgres instance before the next real event.</p>
+  </div>
+
+  <div class="finding">
+    <h4><span class="badge crit">Critical</span> Never load-tested at mela scale</h4>
+    <p>Every verification in this build was a single connection or a handful of sequential test scripts. A real mela deployment could mean dozens of counters, hundreds of concurrent conversations, and STT/TTS calls queuing against Sarvam's own rate limits — none of which has been simulated.</p>
+    <p class="fix"><b>Fix:</b> a load test simulating N concurrent counters before any real deployment; confirm Sarvam's own rate limits and the single uvicorn worker's actual concurrency ceiling.</p>
+  </div>
+
+  <div class="finding">
+    <h4><span class="badge warn">High</span> Single external provider, no fallback</h4>
+    <p>A Sarvam AI outage or rate-limit event stops the entire system — every conversation, not just uncached ones. The provider-abstraction interfaces were part of the original design and were never implemented.</p>
+    <p class="fix"><b>Fix:</b> at minimum, a circuit breaker that fails fast with a clear "service degraded" message instead of hanging; ideally a second provider (Bhashini, being government-backed, is a natural fallback candidate for India specifically) behind the same interface.</p>
+  </div>
+
+  <div class="finding">
+    <h4><span class="badge warn">High</span> No monitoring or alerting</h4>
+    <p>Cost spikes, error rates, and uptime are all currently "check the admin dashboard manually." A misbehaving device or a cost anomaly at 2am has no automatic alert.</p>
+    <p class="fix"><b>Fix:</b> a scheduled job that checks the cost/error dashboards and pushes an alert (even a simple webhook to a phone) past defined thresholds — most of the underlying data already exists in <code>conversation_analytics</code>.</p>
+  </div>
+
+  <div class="finding warn">
+    <h4><span class="badge warn">High</span> No automated tests</h4>
+    <p>Every fix in this build was verified by hand, live, against the deployed system — effective for velocity, risky for regressions as the codebase grows. There is no CI gate stopping a future change from silently reintroducing the Odia/Bengali fallback bug, for example.</p>
+    <p class="fix"><b>Fix:</b> even a modest pytest suite around the FAQ matching tiers, the cost calculations, and the language-resolution logic would catch the highest-value regressions cheaply.</p>
+  </div>
+
+  <div class="finding info">
+    <h4><span class="badge info">Medium</span> Infra-as-code gap</h4>
+    <p>Deployment is a sequence of manually-run <code>docker run</code> commands with specific flags (network name, volume mounts, env-file path) that exist only in this session's history, not in the repository.</p>
+    <p class="fix"><b>Fix:</b> a checked-in <code>docker-compose.yml</code> capturing the exact current running configuration — low effort, removes an entire class of "forgot a flag" redeploy risk.</p>
+  </div>
+
+  <div class="finding info">
+    <h4><span class="badge info">Medium</span> Single shared admin account, no audit trail</h4>
+    <p>One admin username/password per pack, no per-action audit log of who changed which FAQ or paused the API. Fine for a single-operator pilot, not for a multi-person operations team.</p>
+    <p class="fix"><b>Fix:</b> multiple named admin accounts plus an audit log table — small schema addition, meaningfully better accountability at event scale.</p>
+  </div>
+
+  <div class="finding info">
+    <h4><span class="badge info">Medium</span> No release-signed Android build</h4>
+    <p>The APK in circulation is debug-signed. Fine for testing, not for distributing to real counter devices at an event.</p>
+    <p class="fix"><b>Fix:</b> a proper release keystore and signed build before any real deployment — required for any future Play Store distribution too.</p>
+  </div>
+
+  <div class="finding info">
+    <h4><span class="badge info">Medium</span> Data compliance not reviewed</h4>
+    <p>No transcripts/audio are retained by design (good instinct), but there's no written data retention/deletion policy, and a government-adjacent deployment in India should be checked against the DPDP Act 2023's requirements explicitly, not just by informal good practice.</p>
+    <p class="fix"><b>Fix:</b> a short, explicit data-handling policy document — likely already compliant in substance, worth being compliant on paper too.</p>
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2><span class="num">07</span> Improvement roadmap, prioritized</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Priority</th><th>Item</th><th>Why now</th></tr>
+    <tr><td><span class="badge crit">P0</span></td><td>Automated Postgres backups + restore drill</td><td>Single point of total data loss; cheapest possible insurance against the worst outcome.</td></tr>
+    <tr><td><span class="badge crit">P0</span></td><td>Load test at realistic mela concurrency</td><td>The one thing that has never been tested and would be the most visible possible failure at a real event.</td></tr>
+    <tr><td><span class="badge warn">P1</span></td><td>Circuit breaker / graceful degradation on Sarvam outage</td><td>Turns a total outage into a "temporarily degraded" message instead of every conversation silently failing.</td></tr>
+    <tr><td><span class="badge warn">P1</span></td><td>Basic monitoring/alerting on cost and error rate</td><td>The kill-switch is only useful if someone notices there's a reason to use it.</td></tr>
+    <tr><td><span class="badge warn">P1</span></td><td>docker-compose.yml capturing the live deployment</td><td>Removes redeploy risk cheaply; a prerequisite for reliably handing operations to someone else.</td></tr>
+    <tr><td><span class="badge info">P2</span></td><td>Core regression test suite (matching tiers, cost math, language resolution)</td><td>Protects the highest-value bug fixes already made in this build from silently regressing.</td></tr>
+    <tr><td><span class="badge info">P2</span></td><td>Signed release Android build</td><td>Required before any real device distribution.</td></tr>
+    <tr><td><span class="badge info">P2</span></td><td>Multi-admin accounts + audit log</td><td>Needed the moment more than one person operates the admin panel.</td></tr>
+    <tr><td><span class="badge info">P3</span></td><td>Semantic/embedding FAQ matching (pgvector)</td><td>Real upgrade, but only worth it once the FAQ set grows enough that keyword/fuzzy coverage starts visibly missing paraphrases.</td></tr>
+    <tr><td><span class="badge info">P3</span></td><td>Provider abstraction (Bhashini/Azure fallback)</td><td>Removes the single-provider risk and is the literal prerequisite for any non-Indian-language deployment abroad.</td></tr>
+  </table></div>
+</section>
+
+<section id="verdict">
+  <h2><span class="num">08</span> Verdict</h2>
+  <p>Vaani is a well-engineered MVP with a genuinely differentiated cost/caching architecture and a clear, defensible go-to-market story for Indian mega-events — the technical work in this build is well above "demo quality" in the parts that were actively developed. The honest gap is operational hardening: backups, load testing, monitoring, and provider redundancy are the difference between "worked correctly every time I tested it" and "safe to depend on for a real event with real pilgrims." None of these are large individual efforts, and none require rethinking the architecture — they are the natural next phase, not a course correction.</p>
+</section>
+
+<hr class="rule">
+<footer>
+  Vaani — independent technical review, based on the deployed system (VPS 187.127.167.93, vaani.smartsafetytag.com) and the Android client in this repository, as of 2026-09-27. See also the companion <a href="https://claude.ai/artifact/9Mbjesvu1RXpX6NzxmQicM">Cache-First Architecture</a> reference.
+</footer>
+</main>
+</div>
