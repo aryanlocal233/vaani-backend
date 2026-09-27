@@ -726,6 +726,11 @@ async def run_sarvam_pipeline(
             chunk = pcm_audio[offset : offset + TTS_CHUNK_SIZE]
             await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
             chunk_count += 1
+        # Explicit "no more audio is coming for this reply" signal -- without it, the client can
+        # only guess this from a quiet period on the socket, which is both slower than necessary
+        # and, worse, indistinguishable from ordinary network/synthesis jitter mid-reply (see
+        # AudioPlaybackManager.kt's END_OF_STREAM_GRACE_MS).
+        await websocket.send_json({"type": "tts_end"})
         logger.info("FAQ pipeline complete: sent %d audio chunks (%d bytes)", chunk_count, len(pcm_audio))
         # Translate and TTS are both skipped in the common (already-authored, already-cached)
         # case -- this is exactly the cost the FAQ cache saves. Only STT (unavoidable) plus,
@@ -858,6 +863,9 @@ async def run_sarvam_pipeline(
                 await websocket.send_bytes(bytes([FLAG_TTS_AUDIO]) + chunk)
                 chunk_count += 1
             total_bytes += len(pcm_audio)
+        # Sent once, after every sentence's audio has gone out -- not per-sentence -- so the
+        # client only treats the *whole reply* as finished, not each individual sentence gap.
+        await websocket.send_json({"type": "tts_end"})
     finally:
         for task in tts_tasks.values():
             if not task.done():
