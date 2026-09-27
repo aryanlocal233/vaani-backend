@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS conversation_analytics (
     device_id               TEXT,
     detected_language       TEXT,
     faq_id                  TEXT,
+    match_confidence        REAL,  -- FAQ match score (1.0=exact, else fuzzy top-score); NULL if no FAQ matched
     cache_hit               TEXT NOT NULL DEFAULT 'none',   -- 'faq' | 'none'
     translation_api_used    BOOLEAN NOT NULL DEFAULT FALSE,
     tts_api_used            BOOLEAN NOT NULL DEFAULT FALSE,

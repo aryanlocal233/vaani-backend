@@ -105,17 +105,19 @@ async def log_analytics(
     translate_cost_inr: float = 0.0,
     tts_cost_inr: float = 0.0,
     device_id: str | None = None,
+    match_confidence: float | None = None,
 ) -> None:
     async with _pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO conversation_analytics "
             "(pack_id, counter_id, detected_language, faq_id, cache_hit, translation_api_used, "
             " tts_api_used, stt_ms, response_ms, escalated, audio_duration_ms, "
-            " stt_cost_inr, translate_cost_inr, tts_cost_inr, device_id) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+            " stt_cost_inr, translate_cost_inr, tts_cost_inr, device_id, match_confidence) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
             pack_id, counter_id, detected_language, faq_id, cache_hit,
             translation_api_used, tts_api_used, stt_ms, response_ms, escalated,
             audio_duration_ms, stt_cost_inr, translate_cost_inr, tts_cost_inr, device_id,
+            match_confidence,
         )
 
 

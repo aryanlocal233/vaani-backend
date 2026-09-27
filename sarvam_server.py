@@ -679,7 +679,7 @@ async def run_sarvam_pipeline(
 
     faq_match = faq_state.match_faq(transcript, actual_src)
     if faq_match is not None:
-        faq_entry, match_type = faq_match
+        faq_entry, match_type, match_confidence = faq_match
         answer_text, answer_lang, faq_translate_cost = await resolve_or_translate_faq_answer(faq_entry, actual_src)
         # Emergency-category matches still get the pre-approved safe instruction spoken
         # immediately (never left unanswered), but are flagged for the dashboard/operator
@@ -714,7 +714,7 @@ async def run_sarvam_pipeline(
                 stt_ms, int((time.perf_counter() - pipeline_start) * 1000),
                 escalated=is_emergency, audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
                 translate_cost_inr=faq_translate_cost,
-            device_id=device_id,
+            device_id=device_id, match_confidence=match_confidence,
             )
             return visitor_lang
         chunk_count = 0
@@ -732,7 +732,7 @@ async def run_sarvam_pipeline(
             stt_ms, int((time.perf_counter() - pipeline_start) * 1000), escalated=is_emergency,
             audio_duration_ms=audio_duration_ms, stt_cost_inr=stt_cost_val,
             translate_cost_inr=faq_translate_cost, tts_cost_inr=faq_tts_cost,
-        device_id=device_id,
+        device_id=device_id, match_confidence=match_confidence,
         )
         return visitor_lang
 
